@@ -177,7 +177,7 @@ const PALETTE = ['#67E8F9', '#A78BFA', '#FDA4AF', '#FCD34D', '#86EFAC', '#F0ABFC
 const OTHER = '#5b626c';
 let fg = null, graphData = null, graphNodes = [], adjacency = {};
 let hoverId = null, hoverSet = new Set(), pinnedId = null;
-let labelMode = 'hubs', lastScale = 1;
+let labelMode = 'all', lastScale = 1;
 const HUB_DEG = 5;
 const isHot = (l) => { const s = l.source.id || l.source, t = l.target.id || l.target, ff = hoverId || pinnedId; return ff && (s === ff || t === ff); };
 
@@ -186,7 +186,7 @@ function labelAlpha(n, scale) {
   if (n.id === hoverId || n.id === pinnedId) return 1;
   if (hoverId && hoverSet.has(n.id)) return 0.85;
   if (labelMode === 'off') return 0;
-  if (labelMode === 'all') return scale > 1.4 ? 0.85 : scale > 0.75 ? 0.5 : 0;
+  if (labelMode === 'all') return scale > 0.45 ? 0.82 : 0;
   if ((n.deg || 0) >= HUB_DEG && scale > 0.55) return 0.7;   // hubs labelled early
   if (scale > 2.0) return 0.5;                                // reveal everything when zoomed deep
   return 0;
@@ -220,7 +220,7 @@ function hexA(hex, a) {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
-const nodeR = (n) => 2.5 + Math.min(n.deg || 0, 18) * 0.32;   // ~2.5–8 px, clean dots
+const nodeR = (n) => 2 + Math.min(n.deg || 0, 18) * 0.3;   // ~2–7 px, small dots
 function refreshGraph() { if (fg) fg.nodeRelSize(fg.nodeRelSize()); } // nudge a repaint
 
 function paintNode(n, ctx, scale) {
@@ -240,14 +240,15 @@ function paintNode(n, ctx, scale) {
   }
   const la = labelAlpha(n, scale);
   if (la > 0) {
-    const fs = 9 / scale;                 // constant ~9 screen-px (stays tiny at any zoom)
+    const fs = 10 / scale;                // ~10 screen-px, constant
+    const lx = n.x + r + 3 / scale, ly = n.y;   // beside the node, like a node-link diagram
     ctx.globalAlpha = la * f;
     ctx.font = `${fs}px "Spline Sans Mono", ui-monospace, monospace`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.lineWidth = 3 / scale; ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-    ctx.strokeText(n.label || '', n.x, n.y + r + 3 / scale);
-    ctx.fillStyle = (isHover || isPin) ? '#fff' : '#cdd2da';
-    ctx.fillText(n.label || '', n.x, n.y + r + 3 / scale);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3.2 / scale; ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+    ctx.strokeText(n.label || '', lx, ly);
+    ctx.fillStyle = (isHover || isPin) ? '#fff' : '#e6e9ee';
+    ctx.fillText(n.label || '', lx, ly);
   }
   ctx.globalAlpha = 1;
 }
@@ -294,7 +295,8 @@ async function loadGraph() {
       ctx.fillStyle = color; ctx.beginPath();
       ctx.arc(n.x, n.y, nodeR(n) + 4, 0, 2 * Math.PI); ctx.fill();
     })
-    .linkColor((l) => (isHot(l) ? 'rgba(255,255,255,0.7)' : hexA((l.source && l.source.__color) || '#7a7f88', 0.18)))
+    .linkColor((l) => (isHot(l) ? 'rgba(255,255,255,0.7)' : hexA((l.source && l.source.__color) || '#7a7f88', 0.22)))
+    .linkCurvature(0.22)
     .linkWidth((l) => {
       const s = l.source.id || l.source, t = l.target.id || l.target;
       return (hoverId && (s === hoverId || t === hoverId)) ? 1.3 : 0.5;
@@ -310,7 +312,7 @@ async function loadGraph() {
     .onNodeClick((n) => { try { fg.centerAt(n.x, n.y, 600); fg.zoom(Math.max(fg.zoom(), 2.2), 600); } catch (e) {} openNote(n.id); })
     .onBackgroundClick(() => { hoverId = null; hoverSet = new Set(); })
     .onNodeDragEnd((n) => { n.fx = undefined; n.fy = undefined; })   // released node springs back into the sim
-    .onEngineStop(() => { try { fg.zoomToFit(600, 140); } catch (e) {} });
+    .onEngineStop(() => { try { fg.zoomToFit(600, 90); } catch (e) {} });
 
   // Physics: local repulsion + COLLISION (nodes never overlap) + a gentle pull
   // to centre — keeps the graph bounded and filling the canvas instead of
@@ -326,7 +328,7 @@ async function loadGraph() {
   recolor(); sizeGraph();
   els.graphMeta.textContent = `${g.nodes.length} notes · ${g.edges.length} links`;
   // fit once the layout has had time to spread (belt-and-suspenders with onEngineStop)
-  setTimeout(() => { try { fg.zoomToFit(800, 140); } catch (e) {} }, 5200);
+  setTimeout(() => { try { fg.zoomToFit(800, 90); } catch (e) {} }, 5200);
 }
 
 // --- views -----------------------------------------------------------------
