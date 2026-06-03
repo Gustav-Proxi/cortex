@@ -77,6 +77,8 @@ class _Handler(BaseHTTPRequestHandler):
                 folder = (q.get("folder") or [""])[0] or None
                 limit = int((q.get("limit") or ["0"])[0]) or None
                 self._send(200, vault.list_notes(folder, limit))
+            elif u.path == "/graph":
+                self._send(200, vault.link_graph())
             else:
                 self._serve_static(u.path)
         except vault.VaultError as e:

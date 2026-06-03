@@ -484,6 +484,39 @@ def backlinks(rel: str) -> list[str]:
     return out
 
 
+def link_graph() -> dict:
+    """Whole-vault wiki-link graph for the UI: every note as a node (with its
+    folder + frontmatter type/status/domain/tags for coloring) and one edge per
+    resolved [[wikilink]]. Links are resolved by basename (Obsidian-style), so
+    both `[[Note]]` and `[[folder/Note]]` land on the same target."""
+    notes = list(iter_notes())
+    by_stem: dict[str, str] = {}
+    for rel in notes:
+        by_stem.setdefault(Path(rel).stem, rel)
+
+    nodes, edges, seen = [], [], set()
+    for rel in notes:
+        md = resolve(rel).read_text(encoding="utf-8", errors="replace")
+        fm, body = split_frontmatter(md)
+        parent = str(Path(rel).parent)
+        tags = fm.get("tags")
+        nodes.append({
+            "id": rel,
+            "label": Path(rel).stem,
+            "folder": "" if parent == "." else parent,
+            "type": fm.get("type"),
+            "status": fm.get("status"),
+            "domain": fm.get("domain"),
+            "tags": tags if isinstance(tags, list) else ([tags] if tags else []),
+        })
+        for target in set(_WIKILINK.findall(body)):
+            dst = by_stem.get(Path(target).stem)
+            if dst and dst != rel and (rel, dst) not in seen:
+                seen.add((rel, dst))
+                edges.append({"source": rel, "target": dst})
+    return {"nodes": nodes, "edges": edges}
+
+
 # --- templates ---------------------------------------------------------------
 
 def render_template(template_rel: str, variables: dict | None = None) -> str:
