@@ -34,6 +34,14 @@ def iter_notes() -> list[Path]:
 
 def index_file(db, path: Path, *, force: bool = False) -> int:
     rel = str(path.relative_to(config.VAULT_PATH))
+    # Never embed ignored paths (.obsidian, .trash, …). The watcher enqueues any
+    # touched *.md by name, so without this guard a note moved into .trash — or
+    # an edit under .obsidian — would slip into the index and drift from what a
+    # full rebuild (which filters IGNORE_GLOBS) produces. Prune any stale entry.
+    if _ignored(rel):
+        store.delete_path(db, rel)
+        db.commit()
+        return 0
     mtime = path.stat().st_mtime
     if not force and store.file_mtime(db, rel) == mtime:
         return 0

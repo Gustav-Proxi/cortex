@@ -41,23 +41,21 @@ class _Handler(FileSystemEventHandler):
         with self._lock:
             self._pending[src] = time.time()
 
-    def on_modified(self, event):
-        if not event.is_directory:
-            self._touch(event.src_path)
-
-    def on_created(self, event):
-        if not event.is_directory:
-            self._touch(event.src_path)
-
-    def on_moved(self, event):
-        if not event.is_directory:
-            self._touch(event.dest_path)
-
-    def on_deleted(self, event):
-        if event.is_directory or not event.src_path.endswith(".md"):
+    def _prune(self, src_path: str) -> None:
+        """Drop a note's chunks from the index (on delete, or the OLD path of a
+        move/rename). Opens its own short-lived connection — this runs on the
+        watchdog dispatch thread, not the flush loop."""
+        if not src_path.endswith(".md"):
+            return
+        # An os.replace (our atomic write) makes macOS FSEvents emit a spurious
+        # deleted(note.md) even though the note is still on disk under a new
+        # inode. Only prune paths that are ACTUALLY gone, never a live note — a
+        # real delete or the old side of a rename leaves the path absent, so
+        # those still prune correctly.
+        if Path(src_path).exists():
             return
         try:
-            rel = str(Path(event.src_path).relative_to(config.VAULT_PATH))
+            rel = str(Path(src_path).relative_to(config.VAULT_PATH))
         except ValueError:
             return
         db = store.connect()
@@ -67,6 +65,28 @@ class _Handler(FileSystemEventHandler):
             print(f"pruned {rel}")
         finally:
             db.close()
+
+    def on_modified(self, event):
+        if not event.is_directory:
+            self._touch(event.src_path)
+
+    def on_created(self, event):
+        if not event.is_directory:
+            self._touch(event.src_path)
+
+    def on_moved(self, event):
+        # A rename/move is one event: prune the OLD path (else its chunks orphan
+        # in the index until the next full reconcile) and re-index the NEW one.
+        # An atomic write arrives here too (tmp -> note.md); the tmp src isn't
+        # *.md so _prune skips it, and the dest gets re-indexed as normal.
+        if event.is_directory:
+            return
+        self._prune(event.src_path)
+        self._touch(event.dest_path)
+
+    def on_deleted(self, event):
+        if not event.is_directory:
+            self._prune(event.src_path)
 
     def flush_loop(self):
         db = store.connect()

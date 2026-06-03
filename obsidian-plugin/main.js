@@ -62,6 +62,12 @@ class CortexView extends ItemView {
     this.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.search(this.input.value); });
 
     this.checkHealth();
+    // The index changes under us (the watcher re-embeds as you edit, reindexes
+    // run out of band). Poll /health so the count stays live instead of frozen
+    // at whatever it was when the pane opened. Clear any prior handle first so a
+    // re-open of the same view can't leak an interval.
+    if (this._healthTimer) window.clearInterval(this._healthTimer);
+    this._healthTimer = window.setInterval(() => this.checkHealth(), 15000);
     window.setTimeout(() => this.input && this.input.focus(), 60);
 
     // Auto-show connections for the active note.
@@ -128,6 +134,7 @@ class CortexView extends ItemView {
     } catch (e) {
       this._offline(e);
     }
+    this.checkHealth();
   }
 
   // The signature "embeddings lookup": nearest notes to the active one by vector
@@ -194,7 +201,11 @@ class CortexView extends ItemView {
     }
   }
 
-  async onClose() {}
+  async onClose() {
+    if (this._healthTimer) window.clearInterval(this._healthTimer);
+    this._healthTimer = null;
+    this.statusEl = null;
+  }
 }
 
 class CaptureModal extends Modal {

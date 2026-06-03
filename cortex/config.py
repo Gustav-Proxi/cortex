@@ -10,13 +10,22 @@ from pathlib import Path
 
 # --- Vault -------------------------------------------------------------------
 # The Obsidian vault to index. Defaults to ~/Claude/ per the second-brain setup.
-VAULT_PATH = Path(os.environ.get("CORTEX_VAULT", str(Path.home() / "Claude"))).expanduser()
+# Resolve() once: macOS FSEvents reports realpath-canonicalized paths, so if the
+# vault (or a parent) is a symlink, the watcher's relative_to() mapping would
+# silently fail and sync would stop. Resolving here keeps every path comparison
+# (watcher, resolve(), iter_notes) consistent with what the OS reports.
+VAULT_PATH = Path(os.environ.get("CORTEX_VAULT", str(Path.home() / "Claude"))).expanduser().resolve()
+
+# Recoverable-delete folder (Obsidian's convention). Destructive ops
+# (delete / full overwrite) move the prior file here instead of dropping it.
+# It is inside IGNORE_GLOBS below, so trashed notes are never indexed.
+TRASH_DIR = os.environ.get("CORTEX_TRASH_DIR", ".trash")
 
 # Folders / files to skip while indexing (globs matched against vault-relative path).
 # fnmatch '*' spans '/', so 'X/**' excludes everything under X.
 IGNORE_GLOBS = [
     ".obsidian/**",
-    ".trash/**",
+    f"{TRASH_DIR}/**",   # derived from TRASH_DIR so trashed notes are ALWAYS ignored
     ".git/**",
     ".smart-env/**",   # Smart Connections' embedding cache — large, not notes
     ".claude/**",      # Claude Code command/prompt files, not vault knowledge

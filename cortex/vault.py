@@ -15,8 +15,12 @@ Path safety: every path crossing the API is vault-relative and runs through
 from __future__ import annotations
 
 import fnmatch
+import os
 import re
+import shutil
+import stat
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime
 from io import StringIO
@@ -60,6 +64,77 @@ def _ensure_allowed(rel: str) -> None:
     though resolve() would otherwise allow them (they're inside the vault)."""
     if _ignored((rel or "").strip().lstrip("/")):
         raise VaultError(f"path is in a protected/ignored area: {rel}")
+
+
+# --- safe write primitives ---------------------------------------------------
+
+def _atomic_write(full: Path, content: str) -> None:
+    """Write `content` to `full` atomically and durably: a temp file in the same
+    directory, flushed and fsync'd, then `os.replace`d into place (atomic on
+    POSIX), then the parent directory fsync'd so the rename survives a crash. A
+    reader (or a crash) sees either the old complete file or the new complete
+    file — never a torn or truncated note.
+
+    The temp name is a dotfile ending in `.tmp` (not `*.md`), so the watcher and
+    the indexer both ignore it; only the final `os.replace` surfaces.
+    """
+    full.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(full.parent), prefix=f".{full.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        # Preserve the prior file's mode on overwrite — os.replace swaps in a new
+        # inode, so without this a note deliberately chmod'd 0600 would silently
+        # revert to 0644. New files default to 0644.
+        try:
+            os.chmod(tmp, stat.S_IMODE(full.stat().st_mode) if full.exists() else 0o644)
+        except OSError:
+            pass
+        os.replace(tmp, full)
+        # Make the rename itself durable (best-effort; some platforms disallow
+        # fsync on a directory fd).
+        try:
+            dfd = os.open(str(full.parent), os.O_RDONLY)
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
+        except OSError:
+            pass
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _to_trash(full: Path, *, move: bool) -> str:
+    """Put `full` into the vault's .trash for recoverability, mirroring its
+    vault-relative path and de-duplicating the name (`note.1.md`, …) so a prior
+    trashed version is never clobbered. `move=True` for a delete (the original
+    goes away), `move=False` to leave a backup copy before an overwrite.
+    Returns the trash destination's vault-relative path.
+    """
+    root = config.VAULT_PATH.resolve()
+    rel = full.resolve().relative_to(root)
+    dest = root / config.TRASH_DIR / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        stem, suffix, i = dest.stem, dest.suffix, 1
+        while True:
+            cand = dest.with_name(f"{stem}.{i}{suffix}")
+            if not cand.exists():
+                dest = cand
+                break
+            i += 1
+    if move:
+        os.replace(str(full), str(dest))
+    else:
+        shutil.copy2(str(full), str(dest))
+    return str(dest.relative_to(root))
 
 
 def iter_notes(folder: str | None = None):
@@ -155,12 +230,20 @@ def metadata(rel: str) -> dict:
 def write_note(rel: str, content: str, overwrite: bool = True) -> dict:
     _ensure_allowed(rel)
     full = resolve(rel)
-    if full.exists() and not overwrite:
-        raise VaultError(f"refusing to overwrite (overwrite=False): {rel}")
     existed = full.exists()
-    full.parent.mkdir(parents=True, exist_ok=True)
-    full.write_text(content, encoding="utf-8")
-    return {"path": rel, "action": "updated" if existed else "created", "bytes": len(content.encode())}
+    if existed and not overwrite:
+        raise VaultError(f"refusing to overwrite (overwrite=False): {rel}")
+    if existed and full.read_text(encoding="utf-8", errors="replace") == content:
+        # Identical content: skip the .trash backup and the rewrite entirely, so
+        # a repeated identical overwrite doesn't churn .trash or trigger a needless
+        # re-embed. (.trash is not auto-pruned; this keeps it from filling up.)
+        return {"path": rel, "action": "unchanged", "bytes": len(content.encode())}
+    res = {"path": rel, "action": "updated" if existed else "created"}
+    if existed:  # a full overwrite replaces all prior content — keep a recoverable copy
+        res["backup"] = _to_trash(full, move=False)
+    _atomic_write(full, content)
+    res["bytes"] = len(content.encode())
+    return res
 
 
 def append_note(rel: str, content: str) -> dict:
@@ -169,8 +252,7 @@ def append_note(rel: str, content: str) -> dict:
     existing = full.read_text(encoding="utf-8", errors="replace") if full.exists() else ""
     sep = "" if (not existing or existing.endswith("\n")) else "\n"
     new = existing + sep + content
-    full.parent.mkdir(parents=True, exist_ok=True)
-    full.write_text(new, encoding="utf-8")
+    _atomic_write(full, new)
     return {"path": rel, "action": "appended", "bytes": len(new.encode())}
 
 
@@ -202,7 +284,7 @@ def patch_section(rel: str, heading: str, content: str, mode: str = "append") ->
             new_body = f"{section_body.rstrip()}\n\n{content.strip()}\n\n"
         md = md[:body_start] + new_body + md[body_end:]
 
-    resolve(rel).write_text(md, encoding="utf-8")
+    _atomic_write(resolve(rel), md)
     return {"path": rel, "action": f"patch:{mode}", "heading": heading}
 
 
@@ -225,7 +307,7 @@ def set_frontmatter(rel: str, key: str, value) -> dict:
         new_md = f"---\n{buf.getvalue().rstrip(chr(10))}\n---\n{md[m.end():]}"
     else:
         new_md = f"---\n{key}: {value}\n---\n{md}"
-    resolve(rel).write_text(new_md, encoding="utf-8")
+    _atomic_write(resolve(rel), new_md)
     return {"path": rel, "action": "frontmatter", "set": {key: value}}
 
 
@@ -234,8 +316,8 @@ def delete_note(rel: str) -> dict:
     full = resolve(rel)
     if not full.exists():
         raise VaultError(f"note not found: {rel}")
-    full.unlink()
-    return {"path": rel, "action": "deleted"}
+    trashed = _to_trash(full, move=True)  # recoverable: moved to .trash, not unlinked
+    return {"path": rel, "action": "deleted", "trashed": trashed}
 
 
 def move_note(src: str, dst: str, update_links: bool = True) -> dict:
@@ -272,7 +354,7 @@ def move_note(src: str, dst: str, update_links: bool = True) -> dict:
                     out, c = pat.subn(repl, out)
                     n += c
                 if n:
-                    p.write_text(out, encoding="utf-8")
+                    _atomic_write(p, out)
                     rewired += n
     return {"src": src, "dst": dst, "action": "moved", "links_rewired": rewired}
 
