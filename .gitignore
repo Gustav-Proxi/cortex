@@ -21,3 +21,6 @@ build/
 
 # Claude Code local settings (machine-local; never shared)
 .claude/
+
+# built native app bundle
+desktop/Cortex.app/

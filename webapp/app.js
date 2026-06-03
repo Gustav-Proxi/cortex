@@ -134,7 +134,7 @@ function colorMap(dim) {
   const vals = [...new Set(graphNodes.map((n) => gval(n, dim)).filter(Boolean))].sort();
   const m = new Map(); vals.forEach((v, i) => m.set(v, PALETTE[i % PALETTE.length])); return m;
 }
-const nodeR = (n) => 2.2 + Math.min(n.deg || 0, 16) * 0.85;
+const nodeR = (n) => 2 + Math.min(n.deg || 0, 16) * 0.45;   // ~2–9 px
 function refreshGraph() { if (fg) fg.nodeRelSize(fg.nodeRelSize()); } // nudge a repaint
 
 function paintNode(n, ctx, scale) {
@@ -143,32 +143,35 @@ function paintNode(n, ctx, scale) {
   const r = nodeR(n);
   const focused = !hoverId || n.id === hoverId || hoverSet.has(n.id);
   const isHover = n.id === hoverId, isPin = n.id === pinnedId;
-  const a = focused ? 1 : 0.13;
-  // soft outer bloom
-  ctx.globalAlpha = a * 0.16;
-  ctx.beginPath(); ctx.arc(n.x, n.y, r * 2.4, 0, 2 * Math.PI); ctx.fillStyle = color; ctx.fill();
+  const a = focused ? 1 : 0.12;
+  // soft halo (gentle — not a blob)
+  ctx.globalAlpha = a * 0.10;
+  ctx.beginPath(); ctx.arc(n.x, n.y, r * 1.7, 0, 2 * Math.PI); ctx.fillStyle = color; ctx.fill();
   // glowing core
   ctx.globalAlpha = a;
-  ctx.shadowColor = color; ctx.shadowBlur = isHover ? 24 : 13;
+  ctx.shadowColor = color; ctx.shadowBlur = isHover ? 14 : 7;
   ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI); ctx.fillStyle = color; ctx.fill();
   ctx.shadowBlur = 0;
   // specular highlight
-  ctx.globalAlpha = a * 0.55;
-  ctx.beginPath(); ctx.arc(n.x - r * 0.28, n.y - r * 0.28, r * 0.38, 0, 2 * Math.PI);
-  ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
-  // pin / hover ring
+  ctx.globalAlpha = a * 0.5;
+  ctx.beginPath(); ctx.arc(n.x - r * 0.3, n.y - r * 0.3, r * 0.34, 0, 2 * Math.PI);
+  ctx.fillStyle = '#ffffff'; ctx.fill();
+  // ring on hover / pin
   if (isPin || isHover) {
-    ctx.globalAlpha = 1; ctx.lineWidth = 1.2 / scale;
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.globalAlpha = 1; ctx.lineWidth = 1.2 / scale; ctx.strokeStyle = '#ffffff';
     ctx.beginPath(); ctx.arc(n.x, n.y, r + 3 / scale, 0, 2 * Math.PI); ctx.stroke();
   }
-  // label
-  if (scale > 1.25 || isHover) {
-    ctx.globalAlpha = isHover ? 1 : (focused ? 0.78 : 0.12);
-    ctx.font = `${11 / scale}px "Spline Sans Mono", ui-monospace, monospace`;
+  // label ONLY for the hovered node + its neighbours, or the pinned/open note —
+  // showing every label at once was the unreadable mush.
+  if (isHover || isPin || (hoverId && hoverSet.has(n.id))) {
+    const fs = Math.max(10, 11 / scale);
+    ctx.globalAlpha = isHover || isPin ? 1 : 0.85;
+    ctx.font = `${fs}px "Spline Sans Mono", ui-monospace, monospace`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillStyle = isHover ? '#fff' : '#c7ccd4';
-    ctx.fillText(n.label || '', n.x, n.y + r + 2 / scale);
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeText(n.label || '', n.x, n.y + r + 3 / scale);
+    ctx.fillStyle = isHover || isPin ? '#fff' : '#c7ccd4';
+    ctx.fillText(n.label || '', n.x, n.y + r + 3 / scale);
   }
   ctx.globalAlpha = 1;
 }
@@ -228,16 +231,22 @@ async function loadGraph() {
       els.cy.style.cursor = n ? 'pointer' : 'default';
     })
     .onNodeClick((n) => openNote(n.id))
-    .onBackgroundClick(() => { hoverId = null; hoverSet = new Set(); });
+    .onBackgroundClick(() => { hoverId = null; hoverSet = new Set(); })
+    .onEngineStop(() => { try { fg.zoomToFit(600, 55); } catch (e) {} });
 
-  // forces — repulsion + short links so it spreads into an organic cloud
-  try { fg.d3Force('charge').strength(-115).distanceMax(420); } catch (e) {}
-  try { fg.d3Force('link').distance(46).strength(0.9); } catch (e) {}
-  fg.d3VelocityDecay(0.32).warmupTicks(60).cooldownTime(4500);
+  // Physics: local repulsion + COLLISION (nodes never overlap) + a gentle pull
+  // to centre — keeps the graph bounded and filling the canvas instead of
+  // flinging stragglers into the void (which made "fit" zoom to a tiny clump).
+  const D = window.d3 || {};
+  if (D.forceManyBody) fg.d3Force('charge', D.forceManyBody().strength(-160).distanceMax(300));
+  if (D.forceCollide) fg.d3Force('collide', D.forceCollide((n) => nodeR(n) + 5).strength(0.95).iterations(2));
+  if (D.forceX) fg.d3Force('x', D.forceX(0).strength(0.05));
+  if (D.forceY) fg.d3Force('y', D.forceY(0).strength(0.05));
+  try { fg.d3Force('link').distance(48).strength(0.45); } catch (e) {}
+  fg.d3VelocityDecay(0.3).warmupTicks(90).cooldownTime(6000);
 
   recolor(); sizeGraph();
   els.graphMeta.textContent = `${g.nodes.length} notes · ${g.edges.length} links`;
-  setTimeout(() => fg && fg.zoomToFit(700, 60), 300);
 }
 
 // --- views -----------------------------------------------------------------
