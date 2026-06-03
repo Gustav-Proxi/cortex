@@ -42,7 +42,13 @@ def index_file(db, path: Path, *, force: bool = False) -> int:
     if not chunks:
         db.commit()
         return 0
-    vectors = embed.embed_documents([c.text for c in chunks])
+    # Embed the heading breadcrumb alongside the chunk text: the breadcrumb
+    # carries the section's context ("Note > H2 > H3"), which sharpens recall
+    # for short or ambiguous chunks. embed_documents adds the search_document:
+    # prefix, so this stays within the nomic task-prefix invariant.
+    vectors = embed.embed_documents(
+        [f"{c.heading}\n{c.text}" if c.heading else c.text for c in chunks]
+    )
     rows = [(c.path, c.heading, c.text, mtime, c.chunk_index) for c in chunks]
     store.upsert_chunks(db, rows, vectors)
     db.commit()
