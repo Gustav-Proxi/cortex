@@ -24,3 +24,6 @@ build/
 
 # built native app bundle
 desktop/Cortex.app/
+
+# CM6 bundle build deps (the built cm6.js is committed)
+webapp/vendor/_cm6/node_modules/

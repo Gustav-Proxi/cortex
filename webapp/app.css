@@ -144,12 +144,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn:disabled { background: var(--bg-2); color: var(--fg-3); border-color: var(--line); cursor: default; }
 .btn--ghost { background: transparent; color: var(--fg-2); border-color: var(--line); font-weight: 500; }
 .btn--ghost:hover { color: var(--fg); border-color: var(--line-strong); background: var(--bg-hover); }
-.body {
-  flex: 1; width: 100%; resize: none; border: none; outline: none; background: transparent; color: var(--fg);
-  padding: 26px 30px; font-family: var(--mono); font-size: 13.5px; line-height: 1.75; tab-size: 2; letter-spacing: -.005em;
-}
-.body::placeholder { color: var(--fg-3); }
-.body:disabled { color: var(--fg-3); }
+.editor-host { flex: 1; min-height: 0; position: relative; }
+.editor-host .cm-editor { height: 100%; background: transparent; }
+.editor-host .cm-editor.cm-focused { outline: none; }
+.editor-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--fg-3); font-size: 13px; font-family: var(--mono); pointer-events: none; }
+.editor-hint[hidden] { display: none; }
 
 /* ---- toast ---- */
 .toast {

@@ -5,10 +5,27 @@
 const $ = (s) => document.querySelector(s);
 const els = {
   status: $('#status'), q: $('#q'), list: $('#list'), path: $('#path'),
-  body: $('#body'), save: $('#save'), dirty: $('#dirty'), toast: $('#toast'),
+  editor: $('#editor'), hint: $('#editorHint'), save: $('#save'), dirty: $('#dirty'), toast: $('#toast'),
   colorBy: $('#colorBy'), legend: $('#legend'), graphMeta: $('#graphMeta'), cy: $('#cy'),
 };
 const state = { path: null, original: '', mode: 'semantic', external: false };
+let editor = null;
+function ensureEditor() {
+  if (!editor) {
+    editor = window.createCortexEditor(els.editor, {
+      onChange: () => setDirty(editor.getValue() !== state.original),
+      onOpenLink: openByName,
+    });
+  }
+  return editor;
+}
+async function openByName(name) {
+  try {
+    const list = await api('/list?limit=2000');
+    const hit = list.find((p) => basename(p).toLowerCase() === String(name).toLowerCase());
+    if (hit) openNote(hit); else toast(`No note named "${name}"`, true);
+  } catch (e) { toast(e.message, true); }
+}
 
 // --- api -------------------------------------------------------------------
 async function api(path, opts) {
@@ -99,7 +116,8 @@ async function openNote(path) {
   try {
     const note = await api('/note?path=' + encodeURIComponent(path));
     state.path = path; state.original = note.content; state.external = isExternal(path);
-    els.body.value = note.content; els.body.disabled = false; els.body.readOnly = state.external;
+    ensureEditor(); editor.setValue(note.content); editor.setReadOnly(state.external);
+    els.hint.hidden = true;
     els.path.textContent = (state.external ? '⧉ ' : '') + path + (state.external ? '  (read-only)' : '');
     setDirty(false); setView('editor');
     pinnedId = path; refreshGraph();
@@ -107,8 +125,8 @@ async function openNote(path) {
 }
 function setDirty(d) { els.dirty.hidden = !d; els.save.disabled = !d || state.external; }
 async function saveNote() {
-  if (!state.path || state.external) return;
-  const content = els.body.value;
+  if (!state.path || state.external || !editor) return;
+  const content = editor.getValue();
   try {
     const res = await post('/write', { path: state.path, content });
     state.original = content; setDirty(false);
@@ -264,7 +282,6 @@ function setView(v) {
 let searchTimer;
 els.q.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => runSearch(els.q.value), state.mode === 'ask' ? 600 : 220); });
 els.q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(searchTimer); runSearch(els.q.value); } });
-els.body.addEventListener('input', () => setDirty(els.body.value !== state.original));
 els.save.onclick = saveNote;
 els.colorBy.onchange = recolor;
 $('#relayout').onclick = () => { if (fg) { fg.d3ReheatSimulation(); fg.zoomToFit(700, 60); } };
