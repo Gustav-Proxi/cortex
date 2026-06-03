@@ -30,6 +30,37 @@ from . import claude, config, embed, store, vault
 # same-origin with the API below, so the UI's fetches need no CORS relaxation.
 WEBAPP_DIR = Path(__file__).resolve().parent.parent / "webapp"
 
+# Cache for the (slow) semantic-edge computation — the first call embeds every
+# note (~seconds); cached per process and invalidated when the index changes.
+_SEM = {"key": None, "edges": []}
+
+
+def _semantic_edges(k: int, mn: float) -> list[dict]:
+    key = (store.stats(store.connect())["chunks"], k, mn)
+    if _SEM["key"] == key:
+        return _SEM["edges"]
+    db = store.connect()
+    seen, edges = set(), []
+    for rel in vault.list_notes(None, None):
+        try:
+            text = vault.read_note(rel)
+        except vault.VaultError:
+            continue
+        for h in store.search(db, embed.embed_query(text[:4000]), k + 1):
+            if h.path == rel or h.path.startswith("/"):
+                continue          # skip self + external files
+            if mn and h.score < mn:
+                continue
+            a, b = (rel, h.path) if rel < h.path else (h.path, rel)
+            ek = a + "\x00" + b
+            if ek in seen:
+                continue
+            seen.add(ek)
+            edges.append({"source": rel, "target": h.path, "score": round(h.score, 4)})
+    _SEM["key"] = key
+    _SEM["edges"] = edges
+    return edges
+
 
 def _hits(hits) -> list[dict]:
     return [
@@ -79,6 +110,13 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, vault.list_notes(folder, limit))
             elif u.path == "/graph":
                 self._send(200, vault.link_graph())
+            elif u.path == "/semantic_graph":
+                # Extra edges between notes that are semantically close but not
+                # wiki-linked — surfaces hidden relations (top-k per note; cortex
+                # scores are low 1/(1+L2) so rank, not an absolute cutoff, decides).
+                k = int((q.get("k") or ["5"])[0])
+                mn = float((q.get("min") or ["0"])[0])
+                self._send(200, {"edges": _semantic_edges(k, mn)})
             elif u.path == "/raw":
                 self._serve_file(vault.resolve_readable((q.get("path") or [""])[0]))
             else:

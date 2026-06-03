@@ -8,7 +8,7 @@ const els = {
   editor: $('#editor'), hint: $('#editorHint'), viewer: $('#viewer'),
   save: $('#save'), dirty: $('#dirty'), toast: $('#toast'),
   colorBy: $('#colorBy'), legend: $('#legend'), graphMeta: $('#graphMeta'), cy: $('#cy'),
-  labelMode: $('#labelMode'),
+  labelMode: $('#labelMode'), linkMode: $('#linkMode'),
 };
 const state = { path: null, original: '', mode: 'semantic', external: false };
 const VIEW_EXT = /\.(pdf|png|jpe?g|gif|webp|svg|bmp|tiff?|avif)$/i;
@@ -177,6 +177,7 @@ const PALETTE = ['#67E8F9', '#A78BFA', '#FDA4AF', '#FCD34D', '#86EFAC', '#F0ABFC
 const OTHER = '#5b626c';
 let fg = null, graphData = null, graphNodes = [], adjacency = {};
 let hoverId = null, hoverSet = new Set(), pinnedId = null;
+let linkMode = 'both', wikiLinks = [], semLinks = null;   // edge sources for the graph
 let labelMode = 'all', lastScale = 1;
 const HUB_DEG = 5;
 const isHot = (l) => { const s = l.source.id || l.source, t = l.target.id || l.target, ff = hoverId || pinnedId; return ff && (s === ff || t === ff); };
@@ -280,8 +281,8 @@ async function loadGraph() {
     (adjacency[e.target] = adjacency[e.target] || new Set()).add(e.source);
   });
   const nodes = g.nodes.map((n) => ({ id: n.id, label: n.label, folder: n.folder, type: n.type, status: n.status, domain: n.domain, deg: deg[n.id] || 0 }));
-  const links = g.edges.map((e) => ({ source: e.source, target: e.target }));
-  graphData = { nodes, links };
+  wikiLinks = g.edges.map((e) => ({ source: e.source, target: e.target }));
+  graphData = { nodes, links: [] };
 
   fg = ForceGraph()(els.cy);
   fg.graphData(graphData)
@@ -295,12 +296,11 @@ async function loadGraph() {
       ctx.fillStyle = color; ctx.beginPath();
       ctx.arc(n.x, n.y, nodeR(n) + 4, 0, 2 * Math.PI); ctx.fill();
     })
-    .linkColor((l) => (isHot(l) ? 'rgba(255,255,255,0.7)' : hexA((l.source && l.source.__color) || '#7a7f88', 0.22)))
+    .linkColor((l) => (isHot(l) ? 'rgba(255,255,255,0.7)'
+      : hexA((l.source && l.source.__color) || '#7a7f88', l.kind === 'sem' ? 0.09 : 0.22)))
     .linkCurvature(0.22)
-    .linkWidth((l) => {
-      const s = l.source.id || l.source, t = l.target.id || l.target;
-      return (hoverId && (s === hoverId || t === hoverId)) ? 1.3 : 0.5;
-    })
+    .linkLabel((l) => (l.kind === 'sem' ? `semantic ~ ${l.score}` : ''))
+    .linkWidth((l) => (isHot(l) ? 1.4 : l.kind === 'sem' ? 0.4 : 0.7))
     .linkDirectionalParticles((l) => (isHot(l) ? 4 : 0))
     .linkDirectionalParticleWidth(1.8)
     .linkDirectionalParticleSpeed(0.006)
@@ -326,9 +326,38 @@ async function loadGraph() {
   fg.d3VelocityDecay(0.28).d3AlphaDecay(0.015).warmupTicks(40).cooldownTime(9000);
 
   recolor(); sizeGraph();
-  els.graphMeta.textContent = `${g.nodes.length} notes · ${g.edges.length} links`;
-  // fit once the layout has had time to spread (belt-and-suspenders with onEngineStop)
-  setTimeout(() => { try { fg.zoomToFit(800, 90); } catch (e) {} }, 5200);
+  applyLinks();   // populate edges for the current link mode (fetches semantic once, cached)
+  setTimeout(() => { try { fg.zoomToFit(800, 90); } catch (e) {} }, 6500);
+}
+
+const ekey = (a, b) => (a < b ? a + ' ' + b : b + ' ' + a);
+async function applyLinks() {
+  if (!graphData || !fg) return;
+  const links = [], have = new Set();
+  const add = (s, t, kind, score) => {
+    if (s === t) return;
+    const k = ekey(s, t); if (have.has(k)) return; have.add(k);
+    links.push({ source: s, target: t, kind, score });
+  };
+  if (linkMode !== 'semantic') wikiLinks.forEach((e) => add(e.source, e.target, 'wiki'));
+  if (linkMode !== 'wiki') {
+    if (!semLinks) {
+      els.graphMeta.textContent = 'computing semantic links…';
+      try { semLinks = (await api('/semantic_graph')).edges || []; } catch (e) { semLinks = []; }
+    }
+    semLinks.forEach((e) => add(e.source, e.target, 'sem', e.score));
+  }
+  adjacency = {};   // rebuild so hover-highlight matches the shown edges
+  links.forEach((l) => {
+    (adjacency[l.source] = adjacency[l.source] || new Set()).add(l.target);
+    (adjacency[l.target] = adjacency[l.target] || new Set()).add(l.source);
+  });
+  graphData.links = links;
+  fg.graphData(graphData);
+  recolor();
+  els.graphMeta.textContent = `${graphData.nodes.length} notes · ${links.length} links`
+    + (linkMode === 'both' ? '  ·  wiki + semantic' : '');
+  runLayout();
 }
 
 // --- views -----------------------------------------------------------------
@@ -349,6 +378,7 @@ els.q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout
 els.save.onclick = saveNote;
 els.colorBy.onchange = recolor;
 els.labelMode.onchange = () => { labelMode = els.labelMode.value; };
+els.linkMode.onchange = () => { linkMode = els.linkMode.value; applyLinks(); };
 $('#relayout').onclick = () => { if (fg) { fg.d3ReheatSimulation(); fg.zoomToFit(700, 60); } };
 document.querySelectorAll('.seg-btn').forEach((b) => (b.onclick = () => setView(b.dataset.view)));
 document.querySelectorAll('.chip').forEach((c) => (c.onclick = () => {
