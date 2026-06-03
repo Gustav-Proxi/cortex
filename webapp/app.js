@@ -212,7 +212,15 @@ function colorMap(dim) {
   const vals = [...new Set(graphNodes.map((n) => gval(n, dim)).filter(Boolean))].sort();
   const m = new Map(); vals.forEach((v, i) => m.set(v, PALETTE[i % PALETTE.length])); return m;
 }
-const nodeR = (n) => 2.5 + Math.min(n.deg || 0, 18) * 0.3;   // ~2.5–8 px, clean dots
+
+function hexA(hex, a) {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex || '');
+  if (!m) return `rgba(255,255,255,${a})`;
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+const nodeR = (n) => 2.5 + Math.min(n.deg || 0, 18) * 0.32;   // ~2.5–8 px, clean dots
 function refreshGraph() { if (fg) fg.nodeRelSize(fg.nodeRelSize()); } // nudge a repaint
 
 function paintNode(n, ctx, scale) {
@@ -222,7 +230,7 @@ function paintNode(n, ctx, scale) {
   const isHover = n.id === hoverId, isPin = n.id === pinnedId;
   const f = n.__f == null ? 1 : n.__f;   // eased focus (1 focused .. 0.18 dimmed)
   const g = n.__g == null ? 0 : n.__g;   // eased glow (0 .. 1)
-  if (g > 0.01) { ctx.shadowColor = color; ctx.shadowBlur = 12 * g; }
+  ctx.shadowColor = color; ctx.shadowBlur = 2.5 + 10 * g;   // subtle glow, brighter on focus
   ctx.globalAlpha = f;
   ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI); ctx.fillStyle = color; ctx.fill();
   ctx.shadowBlur = 0;
@@ -286,10 +294,7 @@ async function loadGraph() {
       ctx.fillStyle = color; ctx.beginPath();
       ctx.arc(n.x, n.y, nodeR(n) + 4, 0, 2 * Math.PI); ctx.fill();
     })
-    .linkColor((l) => {
-      const s = l.source.id || l.source, t = l.target.id || l.target;
-      return (hoverId && (s === hoverId || t === hoverId)) ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.10)';
-    })
+    .linkColor((l) => (isHot(l) ? 'rgba(255,255,255,0.7)' : hexA((l.source && l.source.__color) || '#7a7f88', 0.18)))
     .linkWidth((l) => {
       const s = l.source.id || l.source, t = l.target.id || l.target;
       return (hoverId && (s === hoverId || t === hoverId)) ? 1.3 : 0.5;
