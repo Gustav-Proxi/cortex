@@ -1,0 +1,11 @@
+/* Vendored, offline. Schibsted Grotesk (UI/display) + Spline Sans Mono (technical). */
+@font-face { font-family: "Schibsted Grotesk"; font-style: normal; font-weight: 400;
+  font-display: swap; src: url("/vendor/fonts/schibsted-400.woff2") format("woff2"); }
+@font-face { font-family: "Schibsted Grotesk"; font-style: normal; font-weight: 500;
+  font-display: swap; src: url("/vendor/fonts/schibsted-500.woff2") format("woff2"); }
+@font-face { font-family: "Schibsted Grotesk"; font-style: normal; font-weight: 600;
+  font-display: swap; src: url("/vendor/fonts/schibsted-600.woff2") format("woff2"); }
+@font-face { font-family: "Spline Sans Mono"; font-style: normal; font-weight: 400;
+  font-display: swap; src: url("/vendor/fonts/spline-mono-400.woff2") format("woff2"); }
+@font-face { font-family: "Spline Sans Mono"; font-style: normal; font-weight: 500;
+  font-display: swap; src: url("/vendor/fonts/spline-mono-500.woff2") format("woff2"); }

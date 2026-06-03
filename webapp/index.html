@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cortex</title>
+  <link rel="stylesheet" href="/vendor/fonts.css" />
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
@@ -24,6 +25,7 @@
         <div class="search-mode">
           <button data-mode="semantic" class="chip chip--on">semantic</button>
           <button data-mode="hybrid" class="chip">hybrid</button>
+          <button data-mode="ask" class="chip chip--ask">ask ✦</button>
         </div>
       </div>
       <div id="list" class="list" aria-label="results"><div class="empty">Loading vault…</div></div>
@@ -64,7 +66,7 @@
     </section>
   </main>
 
-  <script src="/vendor/cytoscape.min.js"></script>
+  <script src="/vendor/force-graph.min.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

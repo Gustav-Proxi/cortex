@@ -102,6 +102,8 @@ class _Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
         self.send_response(200)
         self.send_header("Content-Type", ctype)
+        # Loopback dev server: never cache, so an edit shows up on a plain reload.
+        self.send_header("Cache-Control", "no-store, max-age=0")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -124,6 +126,29 @@ class _Handler(BaseHTTPRequestHandler):
                     return self._send(400, {"error": "query required"})
                 hits = store.search_hybrid(store.connect(), query, embed.embed_query(query), k)
                 self._send(200, _hits(hits))
+            elif u.path == "/ask":
+                query = (data.get("query") or "").strip()
+                k = int(data.get("k", 6))
+                if not query:
+                    return self._send(400, {"error": "query required"})
+                if not config.CHAT_MODEL:
+                    return self._send(200, {"answer": None, "sources": [],
+                        "error": "Ask is off. Pull a small local model and enable it: "
+                                 "`ollama pull llama3.2:3b`, then set CORTEX_CHAT_MODEL=llama3.2:3b."})
+                hits = store.search_hybrid(store.connect(), query, embed.embed_query(query), k)
+                ctx = "\n\n".join(
+                    f"[{i+1}] {h.path}" + (f" › {h.heading}" if h.heading else "") + f"\n{h.text}"
+                    for i, h in enumerate(hits)) or "(no relevant notes found)"
+                prompt = (f"Question: {query}\n\nNotes from my vault:\n{ctx}\n\n"
+                          "Answer the question using only these notes. Cite sources inline as [n]. "
+                          "If the notes don't contain the answer, say so in one line.")
+                system = ("You are Cortex, a concise local second-brain over the user's markdown vault. "
+                          "Answer from the provided notes only; never invent facts; cite as [n].")
+                try:
+                    answer = embed.chat(prompt, config.CHAT_MODEL, system=system)
+                    self._send(200, {"answer": answer, "model": config.CHAT_MODEL, "sources": _hits(hits)})
+                except embed.EmbedError as e:
+                    self._send(200, {"answer": None, "sources": _hits(hits), "error": str(e)})
             elif u.path == "/related":
                 path = data.get("path") or ""
                 k = int(data.get("k", 8))
