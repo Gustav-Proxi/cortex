@@ -90,7 +90,7 @@ def related_notes(path: str, k: int = 8) -> str:
     the note itself — like Smart Connections' "related notes" pane.
     """
     try:
-        text = vault.read_note(path)
+        text = vault.read_any(path)
     except vault.VaultError as e:
         return f"Error: {e}"
     db = store.connect()
@@ -139,9 +139,11 @@ def outgoing_links(path: str) -> str:
 
 @mcp.tool()
 def get_note(path: str) -> str:
-    """Full markdown of a vault note (vault-relative path)."""
+    """Full text of a note. Accepts a vault-relative path, or the absolute path
+    of an indexed external file (from CORTEX_EXTRA_ROOTS) as returned by search —
+    external files are read-only."""
     try:
-        return vault.read_note(path)
+        return vault.read_any(path)
     except vault.VaultError as e:
         return f"Error: {e}"
 

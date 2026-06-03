@@ -186,4 +186,8 @@ def all_paths(db: sqlite3.Connection) -> set[str]:
 def stats(db: sqlite3.Connection) -> dict:
     n_chunks = db.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
     n_notes = db.execute("SELECT COUNT(DISTINCT path) FROM chunks").fetchone()[0]
-    return {"notes": n_notes, "chunks": n_chunks, "db": str(config.DB_PATH)}
+    # External (multi-root) files are keyed by absolute path (leading "/").
+    n_external = db.execute(
+        "SELECT COUNT(DISTINCT path) FROM chunks WHERE path LIKE '/%'"
+    ).fetchone()[0]
+    return {"notes": n_notes, "external": n_external, "chunks": n_chunks, "db": str(config.DB_PATH)}

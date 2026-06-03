@@ -6,6 +6,7 @@ variables so nothing sensitive (vault path, tokens) is hard-coded in the repo.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 # --- Vault -------------------------------------------------------------------
@@ -69,6 +70,53 @@ HTTP_API_PORT = int(os.environ.get("CORTEX_HTTP_API_PORT", "8788"))
 # CORTEX_ALLOW_EXEC=1. The MCP client still gates each call with its own prompt.
 ALLOW_EXEC = os.environ.get("CORTEX_ALLOW_EXEC", "").lower() in ("1", "true", "yes", "on")
 EXEC_TIMEOUT = int(os.environ.get("CORTEX_EXEC_TIMEOUT", "60"))
+
+# --- External source roots (multi-root indexing) -----------------------------
+# Read-only directories indexed ALONGSIDE the vault so agents/Claude can search
+# your projects/docs ("what's where, what each file contains") without copying
+# anything into the vault. Set CORTEX_EXTRA_ROOTS to a colon- or comma-separated
+# list of absolute paths, e.g. "~/Downloads/Projects:~/Documents/papers".
+# Default: none (vault only). External files are indexed IN PLACE, keyed by
+# absolute path, and are NEVER written to — index everything you point at, leave
+# the OS alone (system dirs are excluded below regardless).
+def _parse_roots(raw: str) -> list[Path]:
+    out: list[Path] = []
+    for part in re.split(r"[%s,]" % re.escape(os.pathsep), raw or ""):
+        part = part.strip()
+        if not part:
+            continue
+        p = Path(part).expanduser().resolve()
+        if p.is_dir() and p not in out:
+            out.append(p)
+    return out
+
+
+EXTRA_ROOTS = _parse_roots(os.environ.get("CORTEX_EXTRA_ROOTS", ""))
+
+# Which file types to index inside EXTRA_ROOTS. Text-first by design: PDFs/code
+# need a real extractor + chunker (the markdown chunker would mis-split code),
+# so those are a deliberate later step. The vault itself is always *.md.
+INDEX_EXTENSIONS = {
+    (e if e.startswith(".") else f".{e}").lower()
+    for e in re.split(r"[,\s]+", os.environ.get("CORTEX_INDEX_EXTENSIONS", ".md .txt").strip())
+    if e
+}
+
+# Directory names never descended into inside an external root — system,
+# dependency, build and cache noise that must never be embedded (this is the
+# "leave out major system files" guard; keeps the index small and on-signal).
+EXTERNAL_IGNORE_DIRS = {
+    "node_modules", ".venv", "venv", "env", ".env", "__pycache__", ".git", ".hg",
+    ".svn", "site-packages", "dist", "build", ".cache", ".cargo", ".npm", ".tox",
+    ".mypy_cache", ".pytest_cache", ".ipynb_checkpoints", ".gradle", ".next",
+    "DerivedData", "Pods", "vendor", ".terraform", ".idea", ".vscode",
+    "Library", "System", "Applications", ".Trash", ".obsidian", ".trash",
+    ".smart-env", ".claude",
+}
+
+# Skip files bigger than this (bytes) inside external roots — a giant log/dump
+# isn't knowledge, and embedding it would bloat the index.
+MAX_INDEX_FILE_BYTES = int(os.environ.get("CORTEX_MAX_INDEX_FILE_BYTES", str(2 * 1024 * 1024)))
 
 
 def ensure_dirs() -> None:

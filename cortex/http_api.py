@@ -66,7 +66,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, **store.stats(store.connect())})
             elif u.path == "/note":
                 path = (q.get("path") or [""])[0]
-                self._send(200, {"path": path, "content": vault.read_note(path)})
+                self._send(200, {"path": path, "content": vault.read_any(path)})
             elif u.path == "/list":
                 folder = (q.get("folder") or [""])[0] or None
                 limit = int((q.get("limit") or ["0"])[0]) or None
@@ -92,7 +92,7 @@ class _Handler(BaseHTTPRequestHandler):
             elif u.path == "/related":
                 path = data.get("path") or ""
                 k = int(data.get("k", 8))
-                text = vault.read_note(path)
+                text = vault.read_any(path)
                 hits = [
                     h for h in store.search(store.connect(), embed.embed_query(text[:4000]), k + 6)
                     if h.path != path

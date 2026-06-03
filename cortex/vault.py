@@ -193,6 +193,27 @@ def read_note(rel: str) -> str:
     return full.read_text(encoding="utf-8", errors="replace")
 
 
+def _under_extra_root(p: Path) -> bool:
+    rp = p.resolve()
+    return any(rp == r or r in rp.parents for r in config.EXTRA_ROOTS)
+
+
+def read_any(path_id: str) -> str:
+    """Read a vault note (vault-relative) OR an indexed external file (an absolute
+    path under a configured EXTRA_ROOT — read-only). Search can return external
+    hits, so the read tools accept their absolute paths; external files are never
+    writable, and only paths actually under a configured root are allowed."""
+    cand = (path_id or "").strip()
+    if os.path.isabs(cand):
+        full = Path(cand).resolve()
+        if not _under_extra_root(full):
+            raise VaultError(f"path is not under an indexed root: {path_id}")
+        if not full.exists():
+            raise VaultError(f"file not found: {path_id}")
+        return full.read_text(encoding="utf-8", errors="replace")
+    return read_note(cand)
+
+
 def get_section(rel: str, heading: str) -> str:
     """Return the body under the given ATX heading (matched case-insensitively)."""
     md = read_note(rel)
