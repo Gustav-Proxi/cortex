@@ -18,11 +18,17 @@ Endpoints:
 from __future__ import annotations
 
 import json
+import mimetypes
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from . import config, embed, store, vault
+
+# The local web UI ("Cortex Desktop", browser-served) lives here and is served
+# same-origin with the API below, so the UI's fetches need no CORS relaxation.
+WEBAPP_DIR = Path(__file__).resolve().parent.parent / "webapp"
 
 
 def _hits(hits) -> list[dict]:
@@ -72,11 +78,31 @@ class _Handler(BaseHTTPRequestHandler):
                 limit = int((q.get("limit") or ["0"])[0]) or None
                 self._send(200, vault.list_notes(folder, limit))
             else:
-                self._send(404, {"error": "not found"})
+                self._serve_static(u.path)
         except vault.VaultError as e:
             self._send(400, {"error": str(e)})
         except Exception as e:  # noqa: BLE001 — surface any engine error as JSON
             self._send(500, {"error": str(e)})
+
+    def _serve_static(self, urlpath: str) -> None:
+        """Serve the local web UI from WEBAPP_DIR (loopback only). Path-safe:
+        nothing outside WEBAPP_DIR is reachable; unknown routes fall back to
+        index.html so the single-page app can own client-side routing."""
+        if not WEBAPP_DIR.is_dir():
+            return self._send(404, {"error": "web UI not installed"})
+        rel = urlpath.lstrip("/") or "index.html"
+        target = (WEBAPP_DIR / rel).resolve()
+        if WEBAPP_DIR not in target.parents or not target.is_file():
+            target = WEBAPP_DIR / "index.html"   # SPA fallback
+            if not target.is_file():
+                return self._send(404, {"error": "not found"})
+        data = target.read_bytes()
+        ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_POST(self):
         u = urlparse(self.path)
@@ -88,6 +114,13 @@ class _Handler(BaseHTTPRequestHandler):
                 if not query:
                     return self._send(400, {"error": "query required"})
                 hits = store.search(store.connect(), embed.embed_query(query), k)
+                self._send(200, _hits(hits))
+            elif u.path == "/hybrid":
+                query = (data.get("query") or "").strip()
+                k = int(data.get("k", 8))
+                if not query:
+                    return self._send(400, {"error": "query required"})
+                hits = store.search_hybrid(store.connect(), query, embed.embed_query(query), k)
                 self._send(200, _hits(hits))
             elif u.path == "/related":
                 path = data.get("path") or ""

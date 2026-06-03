@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cortex</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">◧</span> Cortex</div>
+    <div class="topbar-spacer"></div>
+    <div id="status" class="status status--unknown" title="Engine status">connecting…</div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="search">
+        <input id="q" type="search" placeholder="Search your mind…" autocomplete="off" spellcheck="false" />
+        <div class="search-mode">
+          <button data-mode="semantic" class="chip chip--on">semantic</button>
+          <button data-mode="hybrid" class="chip">hybrid</button>
+        </div>
+      </div>
+      <div id="list" class="list" aria-label="results">
+        <div class="empty">Loading vault…</div>
+      </div>
+    </aside>
+
+    <section class="editor">
+      <div class="editor-head">
+        <div id="path" class="path">No note open</div>
+        <div class="editor-actions">
+          <span id="dirty" class="dirty" hidden>●</span>
+          <button id="save" class="btn" disabled>Save</button>
+        </div>
+      </div>
+      <textarea id="body" class="body" placeholder="Open a note from the left, or search to find one."
+                spellcheck="false" disabled></textarea>
+      <div id="toast" class="toast" hidden></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
