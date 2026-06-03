@@ -53,14 +53,3 @@ def embed_documents(texts: Iterable[str]) -> list[list[float]]:
 
 def embed_query(text: str) -> list[float]:
     return _embed_one(f"search_query: {text}")
-
-
-def chat(prompt: str, model: str, system: str | None = None) -> str:
-    """One-shot local chat completion via Ollama (no streaming). Used only by the
-    web UI's optional /ask (RAG) mode — the MCP/Claude path never generates here.
-    Raises EmbedError if the model isn't pulled or Ollama is down."""
-    messages = ([{"role": "system", "content": system}] if system else []) + \
-               [{"role": "user", "content": prompt}]
-    out = _post("/api/chat", {"model": model, "stream": False, "messages": messages,
-                              "options": {"temperature": 0.2}})
-    return ((out or {}).get("message", {}).get("content") or "").strip()

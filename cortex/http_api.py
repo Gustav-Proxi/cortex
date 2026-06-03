@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
-from . import config, embed, store, vault
+from . import claude, config, embed, store, vault
 
 # The local web UI ("Cortex Desktop", browser-served) lives here and is served
 # same-origin with the API below, so the UI's fetches need no CORS relaxation.
@@ -131,23 +131,21 @@ class _Handler(BaseHTTPRequestHandler):
                 k = int(data.get("k", 6))
                 if not query:
                     return self._send(400, {"error": "query required"})
-                if not config.CHAT_MODEL:
+                claude_bin = claude.find_claude()
+                if not claude_bin:
                     return self._send(200, {"answer": None, "sources": [],
-                        "error": "Ask is off. Pull a small local model and enable it: "
-                                 "`ollama pull llama3.2:3b`, then set CORTEX_CHAT_MODEL=llama3.2:3b."})
+                        "error": "Ask is off: the Claude Code CLI wasn't found. Install Claude Code (or set "
+                                 "CORTEX_CLAUDE_BIN). Uses your Claude subscription — no API key."})
                 hits = store.search_hybrid(store.connect(), query, embed.embed_query(query), k)
                 ctx = "\n\n".join(
                     f"[{i+1}] {h.path}" + (f" › {h.heading}" if h.heading else "") + f"\n{h.text}"
                     for i, h in enumerate(hits)) or "(no relevant notes found)"
-                prompt = (f"Question: {query}\n\nNotes from my vault:\n{ctx}\n\n"
-                          "Answer the question using only these notes. Cite sources inline as [n]. "
-                          "If the notes don't contain the answer, say so in one line.")
-                system = ("You are Cortex, a concise local second-brain over the user's markdown vault. "
-                          "Answer from the provided notes only; never invent facts; cite as [n].")
+                system = ("You are Cortex, a concise second-brain over the user's markdown vault. "
+                          "Answer from the provided notes only; never invent facts; cite sources as [n].")
                 try:
-                    answer = embed.chat(prompt, config.CHAT_MODEL, system=system)
-                    self._send(200, {"answer": answer, "model": config.CHAT_MODEL, "sources": _hits(hits)})
-                except embed.EmbedError as e:
+                    ans = claude.answer(query, ctx, system=system, model=config.CLAUDE_MODEL, claude_bin=claude_bin)
+                    self._send(200, {"answer": ans, "model": f"claude · {config.CLAUDE_MODEL}", "sources": _hits(hits)})
+                except claude.ClaudeError as e:
                     self._send(200, {"answer": None, "sources": _hits(hits), "error": str(e)})
             elif u.path == "/related":
                 path = data.get("path") or ""

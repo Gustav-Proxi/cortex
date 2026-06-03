@@ -41,11 +41,13 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 EMBED_MODEL = os.environ.get("CORTEX_EMBED_MODEL", "nomic-embed-text")
 EMBED_DIM = int(os.environ.get("CORTEX_EMBED_DIM", "768"))
 
-# Optional LOCAL chat model (Ollama) for the web UI's "ask" mode — a RAG answer
-# synthesised from your own notes. OFF by default: the engine is retrieval-first
-# (Claude is the stronger generator). Set to a pulled Ollama chat model, e.g.
-# "llama3.2:3b", to enable POST /ask. Generation stays 100% local + free.
-CHAT_MODEL = os.environ.get("CORTEX_CHAT_MODEL", "").strip()
+# The web UI's "ask" mode answers with CLAUDE via the local Claude Code CLI
+# (`claude -p`) — your existing Claude Code subscription auth, NO API key, no
+# per-call API billing. On automatically if the claude binary is found (override
+# its path with CORTEX_CLAUDE_BIN). Retrieval stays local; only the answer call
+# (question + retrieved snippets) goes to Claude. This is the one egress path.
+CLAUDE_BIN = os.environ.get("CORTEX_CLAUDE_BIN", "").strip()
+CLAUDE_MODEL = os.environ.get("CORTEX_CLAUDE_MODEL", "sonnet").strip()
 
 # --- Vector store ------------------------------------------------------------
 # Single sqlite file. Lives outside the vault by default so it never gets
