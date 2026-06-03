@@ -177,8 +177,8 @@ const PALETTE = ['#67E8F9', '#A78BFA', '#FDA4AF', '#FCD34D', '#86EFAC', '#F0ABFC
 const OTHER = '#5b626c';
 let fg = null, graphData = null, graphNodes = [], adjacency = {};
 let hoverId = null, hoverSet = new Set(), pinnedId = null;
-let linkMode = 'both', wikiLinks = [], semLinks = null;   // edge sources for the graph
-let labelMode = 'all', lastScale = 1;
+let linkMode = 'wiki', wikiLinks = [], semLinks = null;   // edge sources (wiki = the Obsidian way)
+let labelMode = 'all';
 const HUB_DEG = 5;
 const isHot = (l) => { const s = l.source.id || l.source, t = l.target.id || l.target, ff = hoverId || pinnedId; return ff && (s === ff || t === ff); };
 
@@ -187,25 +187,10 @@ function labelAlpha(n, scale) {
   if (n.id === hoverId || n.id === pinnedId) return 1;
   if (hoverId && hoverSet.has(n.id)) return 0.85;
   if (labelMode === 'off') return 0;
-  if (labelMode === 'all') return scale > 0.45 ? 0.82 : 0;
+  if (labelMode === 'all') return scale > 1.3 ? 0.9 : scale > 0.7 ? 0.5 : 0;   // fade in with zoom
   if ((n.deg || 0) >= HUB_DEG && scale > 0.55) return 0.7;   // hubs labelled early
   if (scale > 2.0) return 0.5;                                // reveal everything when zoomed deep
   return 0;
-}
-
-// Per-frame eased state so focus dim / glow / labels glide instead of snapping.
-// force-graph calls this every render frame (continuous loop), even after the
-// physics cools — that's what makes hover/selection feel alive, not static.
-function animateFrame(ctx, globalScale) {
-  lastScale = globalScale;
-  if (!graphData) return;
-  const k = 0.18;
-  for (const n of graphData.nodes) {
-    const fT = !hoverId || n.id === hoverId || hoverSet.has(n.id) ? 1 : 0.18;
-    const gT = (n.id === hoverId || n.id === pinnedId) ? 1 : 0;
-    n.__f = n.__f == null ? fT : n.__f + (fT - n.__f) * k;
-    n.__g = n.__g == null ? gT : n.__g + (gT - n.__g) * k;
-  }
 }
 
 const gval = (d, dim) => { const v = d[dim]; return (v == null || v === '') ? null : String(v); };
@@ -229,27 +214,30 @@ function paintNode(n, ctx, scale) {
   const color = n.__color || OTHER;
   const r = nodeR(n);
   const isHover = n.id === hoverId, isPin = n.id === pinnedId;
-  const f = n.__f == null ? 1 : n.__f;   // eased focus (1 focused .. 0.18 dimmed)
-  const g = n.__g == null ? 0 : n.__g;   // eased glow (0 .. 1)
-  ctx.shadowColor = color; ctx.shadowBlur = 2.5 + 10 * g;   // subtle glow, brighter on focus
+  // Focus/glow read straight from hover state — reliable on every render. (The
+  // old eased version needed a continuous frame loop, which force-graph pauses
+  // when the layout settles, so hover/highlight looked dead after a few seconds.)
+  const focused = !hoverId || isHover || hoverSet.has(n.id);
+  const f = focused ? 1 : 0.14;
+  if (isHover || isPin) { ctx.shadowColor = color; ctx.shadowBlur = 12; }
   ctx.globalAlpha = f;
   ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI); ctx.fillStyle = color; ctx.fill();
   ctx.shadowBlur = 0;
-  if (g > 0.01) {   // focus ring fades in with the glow
-    ctx.globalAlpha = g; ctx.lineWidth = 1.4 / scale; ctx.strokeStyle = '#ffffff';
+  if (isHover || isPin) {   // focus ring
+    ctx.globalAlpha = 1; ctx.lineWidth = 1.4 / scale; ctx.strokeStyle = '#ffffff';
     ctx.beginPath(); ctx.arc(n.x, n.y, r + 2.5 / scale, 0, 2 * Math.PI); ctx.stroke();
   }
   const la = labelAlpha(n, scale);
   if (la > 0) {
     const fs = 10 / scale;                // ~10 screen-px, constant
-    const lx = n.x + r + 3 / scale, ly = n.y;   // beside the node, like a node-link diagram
+    const ly = n.y + r + 4 / scale;       // below the node (the Obsidian way)
     ctx.globalAlpha = la * f;
     ctx.font = `${fs}px "Spline Sans Mono", ui-monospace, monospace`;
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.lineWidth = 3.2 / scale; ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-    ctx.strokeText(n.label || '', lx, ly);
+    ctx.strokeText(n.label || '', n.x, ly);
     ctx.fillStyle = (isHover || isPin) ? '#fff' : '#e6e9ee';
-    ctx.fillText(n.label || '', lx, ly);
+    ctx.fillText(n.label || '', n.x, ly);
   }
   ctx.globalAlpha = 1;
 }
@@ -291,14 +279,13 @@ async function loadGraph() {
     .nodeLabel(() => '')
     .nodeCanvasObjectMode(() => 'replace')
     .nodeCanvasObject(paintNode)
-    .onRenderFramePre(animateFrame)
     .nodePointerAreaPaint((n, color, ctx) => {
       ctx.fillStyle = color; ctx.beginPath();
       ctx.arc(n.x, n.y, nodeR(n) + 4, 0, 2 * Math.PI); ctx.fill();
     })
-    .linkColor((l) => (isHot(l) ? 'rgba(255,255,255,0.7)'
-      : hexA((l.source && l.source.__color) || '#7a7f88', l.kind === 'sem' ? 0.09 : 0.22)))
-    .linkCurvature(0.22)
+    .linkColor((l) => (isHot(l) ? 'rgba(255,255,255,0.55)'
+      : l.kind === 'sem' ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.14)'))
+    .linkCurvature(0)
     .linkLabel((l) => (l.kind === 'sem' ? `semantic ~ ${l.score}` : ''))
     .linkWidth((l) => (isHot(l) ? 1.4 : l.kind === 'sem' ? 0.4 : 0.7))
     .linkDirectionalParticles((l) => (isHot(l) ? 4 : 0))
@@ -357,7 +344,6 @@ async function applyLinks() {
   recolor();
   els.graphMeta.textContent = `${graphData.nodes.length} notes · ${links.length} links`
     + (linkMode === 'both' ? '  ·  wiki + semantic' : '');
-  runLayout();
 }
 
 // --- views -----------------------------------------------------------------
@@ -395,3 +381,6 @@ window.addEventListener('keydown', (e) => {
 
 // --- boot ------------------------------------------------------------------
 refreshHealth(); setInterval(refreshHealth, 15000); showNotes();
+
+// debug hook for headless verification of hover rendering (harmless; window-scoped)
+window.__graphHover = (id) => { hoverId = id || null; hoverSet = (id && adjacency[id]) || new Set(); if (fg) fg.nodeCanvasObject(paintNode); };
