@@ -1,17 +1,17 @@
 // Bundled (esbuild) into ../cm6.js — exposes window.createCortexEditor.
-// A markdown editor for Cortex: monochrome syntax styling (headings prominent,
-// emphasis, code, quotes), clickable [[wikilinks]] (⌘/Ctrl-click), line wrap,
-// undo/redo, read-only mode. All CodeMirror 6 API usage is contained here.
-import { EditorState, Compartment } from "@codemirror/state";
+// Markdown editor for Cortex: monochrome syntax styling, Obsidian-style live
+// preview (markup hidden except on the line you're editing), clickable
+// [[wikilinks]] (⌘/Ctrl-click), image paste, line wrap, undo/redo, read-only.
+import { EditorState, Compartment, RangeSetBuilder } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, highlightActiveLine,
          Decoration, ViewPlugin, MatchDecorator } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching } from "@codemirror/language";
+import { syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching, syntaxTree } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 
 const highlight = HighlightStyle.define([
-  { tag: t.heading1, fontSize: "1.55em", fontWeight: "700", color: "#ffffff", lineHeight: "1.4" },
+  { tag: t.heading1, fontSize: "1.55em", fontWeight: "700", color: "#ffffff", lineHeight: "1.5" },
   { tag: t.heading2, fontSize: "1.32em", fontWeight: "700", color: "#ffffff" },
   { tag: t.heading3, fontSize: "1.16em", fontWeight: "600", color: "#f1f2f4" },
   { tag: [t.heading4, t.heading5, t.heading6], fontWeight: "600", color: "#e7e8eb" },
@@ -38,6 +38,40 @@ const theme = EditorView.theme({
                     textDecorationColor: "rgba(158,203,255,0.35)", textUnderlineOffset: "2px", cursor: "pointer" },
 }, { dark: true });
 
+// --- live preview: hide markdown markup, except on the line being edited -----
+const HIDE = Decoration.replace({});
+const MARK_TYPES = new Set([
+  "HeaderMark", "EmphasisMark", "StrongEmphasisMark", "CodeMark",
+  "QuoteMark", "StrikethroughMark", "LinkMark",
+]);
+function activeLines(state) {
+  const set = new Set();
+  for (const r of state.selection.ranges) {
+    const a = state.doc.lineAt(r.from).number, b = state.doc.lineAt(r.to).number;
+    for (let n = a; n <= b; n++) set.add(n);
+  }
+  return set;
+}
+const livePreview = ViewPlugin.fromClass(class {
+  constructor(view) { this.decorations = this.build(view); }
+  update(u) { if (u.docChanged || u.selectionSet || u.viewportChanged) this.decorations = this.build(u.view); }
+  build(view) {
+    const act = activeLines(view.state), ranges = [];
+    for (const { from, to } of view.visibleRanges) {
+      syntaxTree(view.state).iterate({ from, to, enter: (n) => {
+        if (MARK_TYPES.has(n.name) && n.to > n.from) {
+          if (!act.has(view.state.doc.lineAt(n.from).number)) ranges.push([n.from, n.to]);
+        }
+      }});
+    }
+    ranges.sort((a, b) => a[0] - b[0]);
+    const b = new RangeSetBuilder();
+    for (const [f, to] of ranges) b.add(f, to, HIDE);
+    return b.finish();
+  }
+}, { decorations: (v) => v.decorations });
+
+// --- wikilinks: style + clickable ------------------------------------------
 const WIKI = /\[\[([^\]\n|#]+)(?:[#|][^\]\n]*)?\]\]/g;
 const wikiMatcher = new MatchDecorator({ regexp: WIKI, decoration: () => Decoration.mark({ class: "cm-wikilink" }) });
 const wikilinks = ViewPlugin.define(
@@ -52,6 +86,7 @@ window.createCortexEditor = function (parent, opts) {
   opts = opts || {};
   const onChange = opts.onChange || function () {};
   const onOpenLink = opts.onOpenLink || function () {};
+  const onImagePaste = opts.onImagePaste || null;
   const ro = new Compartment();
   let silent = false;
 
@@ -63,7 +98,7 @@ window.createCortexEditor = function (parent, opts) {
         history(), drawSelection(), highlightActiveLine(), indentOnInput(), bracketMatching(),
         markdown({ base: markdownLanguage }),
         syntaxHighlighting(highlight),
-        wikilinks,
+        livePreview, wikilinks,
         EditorView.lineWrapping,
         ro.of(EditorState.readOnly.of(false)),
         theme,
@@ -76,6 +111,21 @@ window.createCortexEditor = function (parent, opts) {
               const m = (el.textContent || "").match(/\[\[([^\]\n|#]+)/);
               if (m) { e.preventDefault(); onOpenLink(m[1].trim()); return true; }
             }
+          },
+          paste(e) {
+            if (!onImagePaste) return false;
+            const items = (e.clipboardData && e.clipboardData.items) || [];
+            for (const it of items) {
+              if (it.type && it.type.indexOf("image/") === 0) {
+                const file = it.getAsFile();
+                if (file) {
+                  e.preventDefault();
+                  onImagePaste(file, (snippet) => view.dispatch(view.state.replaceSelection(snippet)));
+                  return true;
+                }
+              }
+            }
+            return false;
           },
         }),
       ],

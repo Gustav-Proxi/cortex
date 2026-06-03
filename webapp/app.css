@@ -36,7 +36,10 @@
 html, body { height: 100%; margin: 0; }
 body {
   background:
-    radial-gradient(120% 80% at 50% -10%, #14171c 0%, var(--bg-0) 55%) fixed;
+    radial-gradient(820px 620px at 10% -8%, rgba(110,168,254,0.07), transparent 58%),
+    radial-gradient(760px 680px at 96% 4%, rgba(167,139,250,0.06), transparent 55%),
+    radial-gradient(680px 600px at 70% 108%, rgba(94,234,212,0.05), transparent 60%),
+    radial-gradient(130% 90% at 50% -10%, #131720 0%, var(--bg-0) 62%) fixed;
   color: var(--fg); font-family: var(--ui); font-size: 13.5px; line-height: 1.5;
   display: flex; flex-direction: column; letter-spacing: .005em;
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
@@ -53,8 +56,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* ---- top bar ---- */
 .topbar {
   display: flex; align-items: center; gap: 18px; height: 52px; padding: 0 18px;
-  border-bottom: 1px solid var(--line); background: linear-gradient(var(--bg-1), var(--bg-0));
-  flex: 0 0 auto; box-shadow: var(--inset-hi); position: relative; z-index: 5;
+  border-bottom: 1px solid var(--line); flex: 0 0 auto; position: relative; z-index: 5;
+  background: rgba(12,14,18,0.55);
+  -webkit-backdrop-filter: blur(26px) saturate(150%); backdrop-filter: blur(26px) saturate(150%);
+  box-shadow: var(--inset-hi), 0 1px 0 rgba(0,0,0,0.3);
   animation: drop .5s var(--ease) both;
 }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 15px; letter-spacing: -.01em; }
@@ -64,7 +69,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .topbar-spacer { flex: 1; }
 
-.seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 999px; }
+.seg { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+  background: rgba(255,255,255,0.045); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .seg-btn {
   font-size: 12.5px; font-weight: 500; padding: 4px 15px; border: none; background: transparent;
   color: var(--fg-2); cursor: pointer; border-radius: 999px; transition: color .18s, background .18s, box-shadow .18s;
@@ -74,8 +80,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .status {
   font-family: var(--mono); font-size: 11.5px; color: var(--fg-2); letter-spacing: -.01em;
-  padding: 5px 11px 5px 9px; border-radius: 999px; border: 1px solid var(--line-2);
-  background: var(--bg-2); display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  padding: 5px 11px 5px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.05); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
 }
 .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); transition: background .2s, box-shadow .2s; }
 .status--ok::before { background: #fff; box-shadow: 0 0 8px rgba(255,255,255,.7); }
@@ -85,15 +92,18 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .layout { flex: 1; display: grid; grid-template-columns: 312px 1fr; min-height: 0; }
 .sidebar {
   border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0;
-  background: linear-gradient(180deg, var(--bg-1), var(--bg-0)); animation: slideL .55s var(--ease) both .05s;
+  background: rgba(10,12,16,0.42);
+  -webkit-backdrop-filter: blur(22px) saturate(135%); backdrop-filter: blur(22px) saturate(135%);
+  box-shadow: var(--inset-hi); animation: slideL .55s var(--ease) both .05s;
 }
 
 /* ---- search ---- */
 .search { padding: 14px; border-bottom: 1px solid var(--line-2); }
 #q {
-  width: 100%; padding: 10px 13px; border-radius: var(--r); border: 1px solid var(--line);
-  background: var(--bg-0); color: var(--fg); font-size: 13px; outline: none;
-  box-shadow: var(--inset-hi); transition: border-color .18s, box-shadow .18s;
+  width: 100%; padding: 10px 13px; border-radius: var(--r); border: 1px solid rgba(255,255,255,0.09);
+  background: rgba(255,255,255,0.045); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  color: var(--fg); font-size: 13px; outline: none;
+  box-shadow: var(--inset-hi); transition: border-color .18s, box-shadow .18s, background .18s;
 }
 #q::placeholder { color: var(--fg-3); }
 #q:focus { border-color: var(--line-strong); box-shadow: var(--inset-hi), 0 0 0 3px rgba(255,255,255,.06); }
@@ -161,7 +171,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .toast--bad { border-color: rgba(255,141,141,.4); color: #ff9d9d; }
 
 /* ---- graph ---- */
-.graph-bar { display: flex; align-items: center; gap: 16px; padding: 11px 18px; border-bottom: 1px solid var(--line-2); flex: 0 0 auto; flex-wrap: wrap; }
+.graph-bar { display: flex; align-items: center; gap: 16px; padding: 11px 18px; border-bottom: 1px solid var(--line-2); flex: 0 0 auto; flex-wrap: wrap;
+  background: rgba(12,14,18,0.5); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); position: relative; z-index: 2; }
 .graph-ctl { font-size: 11.5px; color: var(--fg-3); text-transform: uppercase; letter-spacing: .06em; display: inline-flex; align-items: center; gap: 8px; }
 .graph-ctl select {
   background: var(--bg-2); color: var(--fg); border: 1px solid var(--line); border-radius: var(--r-sm);
