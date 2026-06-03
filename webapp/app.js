@@ -8,6 +8,7 @@ const els = {
   editor: $('#editor'), hint: $('#editorHint'), viewer: $('#viewer'),
   save: $('#save'), dirty: $('#dirty'), toast: $('#toast'),
   colorBy: $('#colorBy'), legend: $('#legend'), graphMeta: $('#graphMeta'), cy: $('#cy'),
+  labelMode: $('#labelMode'),
 };
 const state = { path: null, original: '', mode: 'semantic', external: false };
 const VIEW_EXT = /\.(pdf|png|jpe?g|gif|webp|svg|bmp|tiff?|avif)$/i;
@@ -176,6 +177,35 @@ const PALETTE = ['#67E8F9', '#A78BFA', '#FDA4AF', '#FCD34D', '#86EFAC', '#F0ABFC
 const OTHER = '#5b626c';
 let fg = null, graphData = null, graphNodes = [], adjacency = {};
 let hoverId = null, hoverSet = new Set(), pinnedId = null;
+let labelMode = 'hubs', lastScale = 1;
+const HUB_DEG = 5;
+const isHot = (l) => { const s = l.source.id || l.source, t = l.target.id || l.target, ff = hoverId || pinnedId; return ff && (s === ff || t === ff); };
+
+// Level-of-detail label policy — opacity (0 = don't draw) for a node at this zoom.
+function labelAlpha(n, scale) {
+  if (n.id === hoverId || n.id === pinnedId) return 1;
+  if (hoverId && hoverSet.has(n.id)) return 0.85;
+  if (labelMode === 'off') return 0;
+  if (labelMode === 'all') return scale > 1.4 ? 0.85 : scale > 0.75 ? 0.5 : 0;
+  if ((n.deg || 0) >= HUB_DEG && scale > 0.55) return 0.7;   // hubs labelled early
+  if (scale > 2.0) return 0.5;                                // reveal everything when zoomed deep
+  return 0;
+}
+
+// Per-frame eased state so focus dim / glow / labels glide instead of snapping.
+// force-graph calls this every render frame (continuous loop), even after the
+// physics cools — that's what makes hover/selection feel alive, not static.
+function animateFrame(ctx, globalScale) {
+  lastScale = globalScale;
+  if (!graphData) return;
+  const k = 0.18;
+  for (const n of graphData.nodes) {
+    const fT = !hoverId || n.id === hoverId || hoverSet.has(n.id) ? 1 : 0.18;
+    const gT = (n.id === hoverId || n.id === pinnedId) ? 1 : 0;
+    n.__f = n.__f == null ? fT : n.__f + (fT - n.__f) * k;
+    n.__g = n.__g == null ? gT : n.__g + (gT - n.__g) * k;
+  }
+}
 
 const gval = (d, dim) => { const v = d[dim]; return (v == null || v === '') ? null : String(v); };
 function colorMap(dim) {
@@ -190,25 +220,25 @@ function paintNode(n, ctx, scale) {
   const color = n.__color || OTHER;
   const r = nodeR(n);
   const isHover = n.id === hoverId, isPin = n.id === pinnedId;
-  const focused = !hoverId || n.id === hoverId || hoverSet.has(n.id);
-  // Minimal: a flat crisp dot. Glow only on the hovered/open node, not idle.
-  if (isHover || isPin) { ctx.shadowColor = color; ctx.shadowBlur = 12; }
-  ctx.globalAlpha = focused ? 1 : 0.2;
+  const f = n.__f == null ? 1 : n.__f;   // eased focus (1 focused .. 0.18 dimmed)
+  const g = n.__g == null ? 0 : n.__g;   // eased glow (0 .. 1)
+  if (g > 0.01) { ctx.shadowColor = color; ctx.shadowBlur = 12 * g; }
+  ctx.globalAlpha = f;
   ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI); ctx.fillStyle = color; ctx.fill();
   ctx.shadowBlur = 0;
-  if (isHover || isPin) {
-    ctx.globalAlpha = 1; ctx.lineWidth = 1.4 / scale; ctx.strokeStyle = '#ffffff';
+  if (g > 0.01) {   // focus ring fades in with the glow
+    ctx.globalAlpha = g; ctx.lineWidth = 1.4 / scale; ctx.strokeStyle = '#ffffff';
     ctx.beginPath(); ctx.arc(n.x, n.y, r + 2.5 / scale, 0, 2 * Math.PI); ctx.stroke();
   }
-  // Labels only on hover / open note (+ its neighbours) — idle graph stays clean.
-  if (isHover || isPin || (hoverId && hoverSet.has(n.id))) {
-    const fs = Math.min(13, Math.max(9.5, 11 / scale));
-    ctx.globalAlpha = isHover || isPin ? 1 : 0.8;
+  const la = labelAlpha(n, scale);
+  if (la > 0) {
+    const fs = 9 / scale;                 // constant ~9 screen-px (stays tiny at any zoom)
+    ctx.globalAlpha = la * f;
     ctx.font = `${fs}px "Spline Sans Mono", ui-monospace, monospace`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+    ctx.lineWidth = 3 / scale; ctx.strokeStyle = 'rgba(0,0,0,0.9)';
     ctx.strokeText(n.label || '', n.x, n.y + r + 3 / scale);
-    ctx.fillStyle = isHover || isPin ? '#fff' : '#cdd2da';
+    ctx.fillStyle = (isHover || isPin) ? '#fff' : '#cdd2da';
     ctx.fillText(n.label || '', n.x, n.y + r + 3 / scale);
   }
   ctx.globalAlpha = 1;
@@ -251,6 +281,7 @@ async function loadGraph() {
     .nodeLabel(() => '')
     .nodeCanvasObjectMode(() => 'replace')
     .nodeCanvasObject(paintNode)
+    .onRenderFramePre(animateFrame)
     .nodePointerAreaPaint((n, color, ctx) => {
       ctx.fillStyle = color; ctx.beginPath();
       ctx.arc(n.x, n.y, nodeR(n) + 4, 0, 2 * Math.PI); ctx.fill();
@@ -263,13 +294,17 @@ async function loadGraph() {
       const s = l.source.id || l.source, t = l.target.id || l.target;
       return (hoverId && (s === hoverId || t === hoverId)) ? 1.3 : 0.5;
     })
+    .linkDirectionalParticles((l) => (isHot(l) ? 4 : 0))
+    .linkDirectionalParticleWidth(1.8)
+    .linkDirectionalParticleSpeed(0.006)
     .onNodeHover((n) => {
       hoverId = n ? n.id : null;
       hoverSet = n ? (adjacency[n.id] || new Set()) : new Set();
       els.cy.style.cursor = n ? 'pointer' : 'default';
     })
-    .onNodeClick((n) => openNote(n.id))
+    .onNodeClick((n) => { try { fg.centerAt(n.x, n.y, 600); fg.zoom(Math.max(fg.zoom(), 2.2), 600); } catch (e) {} openNote(n.id); })
     .onBackgroundClick(() => { hoverId = null; hoverSet = new Set(); })
+    .onNodeDragEnd((n) => { n.fx = undefined; n.fy = undefined; })   // released node springs back into the sim
     .onEngineStop(() => { try { fg.zoomToFit(600, 140); } catch (e) {} });
 
   // Physics: local repulsion + COLLISION (nodes never overlap) + a gentle pull
@@ -281,7 +316,7 @@ async function loadGraph() {
   if (D.forceX) fg.d3Force('x', D.forceX(0).strength(0.08));
   if (D.forceY) fg.d3Force('y', D.forceY(0).strength(0.08));
   try { fg.d3Force('link').distance(72).strength(0.5); } catch (e) {}
-  fg.d3VelocityDecay(0.3).warmupTicks(150).cooldownTime(5000);
+  fg.d3VelocityDecay(0.28).d3AlphaDecay(0.015).warmupTicks(40).cooldownTime(9000);
 
   recolor(); sizeGraph();
   els.graphMeta.textContent = `${g.nodes.length} notes · ${g.edges.length} links`;
@@ -306,6 +341,7 @@ els.q.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer =
 els.q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(searchTimer); runSearch(els.q.value); } });
 els.save.onclick = saveNote;
 els.colorBy.onchange = recolor;
+els.labelMode.onchange = () => { labelMode = els.labelMode.value; };
 $('#relayout').onclick = () => { if (fg) { fg.d3ReheatSimulation(); fg.zoomToFit(700, 60); } };
 document.querySelectorAll('.seg-btn').forEach((b) => (b.onclick = () => setView(b.dataset.view)));
 document.querySelectorAll('.chip').forEach((c) => (c.onclick = () => {
