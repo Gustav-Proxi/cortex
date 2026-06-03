@@ -40,6 +40,7 @@ def connect() -> sqlite3.Connection:
     db = sqlite3.connect(str(config.DB_PATH), timeout=30.0)
     db.execute("PRAGMA busy_timeout=30000")
     db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=NORMAL")  # WAL-safe; fewer fsyncs under concurrent writers
     db.enable_load_extension(True)
     sqlite_vec.load(db)
     db.enable_load_extension(False)

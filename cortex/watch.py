@@ -25,6 +25,16 @@ class _Handler(FileSystemEventHandler):
         self._pending: dict[str, float] = {}
         self._lock = threading.Lock()
 
+    def dispatch(self, event):
+        # A transient DB error inside a handler must never escape the watchdog
+        # dispatch thread — that would kill the observer and silently stop ALL
+        # sync (the index goes stale while /health still says ok). Catch
+        # everything, log it, keep watching.
+        try:
+            super().dispatch(event)
+        except Exception as e:
+            print(f"! watch error on {getattr(event, 'src_path', '?')}: {e}")
+
     def _touch(self, src: str) -> None:
         if not src.endswith(".md"):
             return
@@ -51,9 +61,12 @@ class _Handler(FileSystemEventHandler):
         except ValueError:
             return
         db = store.connect()
-        store.delete_path(db, rel)
-        db.commit()
-        print(f"pruned {rel}")
+        try:
+            store.delete_path(db, rel)
+            db.commit()
+            print(f"pruned {rel}")
+        finally:
+            db.close()
 
     def flush_loop(self):
         db = store.connect()
@@ -76,6 +89,10 @@ class _Handler(FileSystemEventHandler):
                         print(f"reindexed {path.name}: {n} chunks")
                 except Exception as e:
                     print(f"! {path.name}: {e}")
+                    try:  # shared connection may be poisoned — reconnect so the loop self-heals
+                        db = store.connect()
+                    except Exception:
+                        pass
 
 
 def main() -> int:
