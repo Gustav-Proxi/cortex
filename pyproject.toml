@@ -1,0 +1,31 @@
+[project]
+name = "cortex"
+version = "0.1.0"
+description = "Local semantic layer over an Obsidian vault, exposed via MCP."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "Vaishak G Kumar (Gustav-Proxi)" }]
+dependencies = [
+    "sqlite-vec>=0.1.6",
+    "mcp>=1.2.0",
+    "watchdog>=4.0.0",
+    "pyyaml>=6.0",
+    "ruamel.yaml>=0.18",
+]
+
+[project.urls]
+Homepage = "https://github.com/Gustav-Proxi/cortex"
+Repository = "https://github.com/Gustav-Proxi/cortex"
+
+[project.scripts]
+cortex-index = "cortex.index:main"
+cortex-server = "cortex.server:main"
+cortex-watch = "cortex.watch:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cortex"]

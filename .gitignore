@@ -1,0 +1,23 @@
+# Never commit the index — it embeds note text.
+*.db
+.cortex/
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# macOS
+.DS_Store
+
+# Editor / backup cruft
+*.bak
+*.bak-*
+*~
+*.swp
+*.orig
+
+# Claude Code local settings (machine-local; never shared)
+.claude/

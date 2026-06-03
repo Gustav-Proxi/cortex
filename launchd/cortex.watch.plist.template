@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent: runs the cortex watcher on login so the embedding index stays
+  in sync automatically, in the background.
+
+  This is a TEMPLATE — it is not usable as-is. install.sh substitutes the
+  placeholders and installs it. To do it by hand from the repo root:
+
+    sed -e "s#__VENV_PYTHON__#$PWD/.venv/bin/python#" \
+        -e "s#__WORKDIR__#$PWD#" \
+        -e "s#__VAULT__#${CORTEX_VAULT:-$HOME/Claude}#" \
+      launchd/cortex.watch.plist.template > ~/Library/LaunchAgents/dev.cortex.watch.plist
+    launchctl load -w ~/Library/LaunchAgents/dev.cortex.watch.plist
+
+  (launchd does NOT expand ~ or $HOME inside <string> values, which is why these
+  paths must be substituted to absolute paths rather than shipped literally.)
+  ProcessType=Background + Nice keep it gentle on the CPU.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dev.cortex.watch</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__VENV_PYTHON__</string>
+        <string>-m</string>
+        <string>cortex.watch</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__WORKDIR__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CORTEX_VAULT</key>
+        <string>__VAULT__</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>5</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/cortex.watch.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/cortex.watch.err.log</string>
+</dict>
+</plist>

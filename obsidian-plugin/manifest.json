@@ -1,0 +1,10 @@
+{
+  "id": "cortex",
+  "name": "Cortex",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "In-house semantic brain for your vault — meaning-based search and related-notes, backed by the local Cortex engine. No third-party server, nothing leaves your Mac.",
+  "author": "Vaishak G Kumar (Gustav-Proxi)",
+  "authorUrl": "https://github.com/Gustav-Proxi",
+  "isDesktopOnly": true
+}
