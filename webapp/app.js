@@ -5,24 +5,53 @@
 const $ = (s) => document.querySelector(s);
 const els = {
   status: $('#status'), q: $('#q'), list: $('#list'), path: $('#path'),
-  editor: $('#editor'), hint: $('#editorHint'), save: $('#save'), dirty: $('#dirty'), toast: $('#toast'),
+  editor: $('#editor'), hint: $('#editorHint'), viewer: $('#viewer'),
+  save: $('#save'), dirty: $('#dirty'), toast: $('#toast'),
   colorBy: $('#colorBy'), legend: $('#legend'), graphMeta: $('#graphMeta'), cy: $('#cy'),
 };
 const state = { path: null, original: '', mode: 'semantic', external: false };
+const VIEW_EXT = /\.(pdf|png|jpe?g|gif|webp|svg|bmp|tiff?|avif)$/i;
 let editor = null;
 function ensureEditor() {
   if (!editor) {
     editor = window.createCortexEditor(els.editor, {
       onChange: () => setDirty(editor.getValue() !== state.original),
       onOpenLink: openByName,
+      onImagePaste: onImagePaste,
     });
   }
   return editor;
 }
+async function onImagePaste(file, insert) {
+  try {
+    const ext = ((file.type || '').split('/')[1] || 'png').replace('jpeg', 'jpg').split('+')[0];
+    const r = await fetch('/attach?name=' + encodeURIComponent(`pasted-${Date.now()}.${ext}`), {
+      method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: await file.arrayBuffer(),
+    });
+    const j = await r.json();
+    if (j && j.path) { insert(`![[${j.path}]]`); toast('Image saved'); setTimeout(refreshHealth, 2500); }
+    else toast((j && j.error) || 'Attach failed', true);
+  } catch (e) { toast(e.message, true); }
+}
+function openViewer(path) {
+  state.path = path; state.external = isExternal(path);
+  setView('editor');
+  const url = '/raw?path=' + encodeURIComponent(path);
+  els.viewer.innerHTML = /\.pdf$/i.test(path)
+    ? `<iframe src="${url}"></iframe>`
+    : `<img src="${url}" alt="${esc(basename(path))}">`;
+  els.hint.hidden = true; els.editor.style.display = 'none'; els.viewer.hidden = false;
+  els.path.textContent = (state.external ? '⧉ ' : '') + path + '  (view)';
+  setDirty(false); els.save.disabled = true;
+  pinnedId = path; refreshGraph();
+}
 async function openByName(name) {
+  name = String(name).trim();
+  if (VIEW_EXT.test(name)) return openNote(name);
   try {
     const list = await api('/list?limit=2000');
-    const hit = list.find((p) => basename(p).toLowerCase() === String(name).toLowerCase());
+    const hit = list.find((p) => basename(p).toLowerCase() === name.toLowerCase());
     if (hit) openNote(hit); else toast(`No note named "${name}"`, true);
   } catch (e) { toast(e.message, true); }
 }
@@ -113,11 +142,12 @@ function renderAnswer(r) {
 
 // --- editor ----------------------------------------------------------------
 async function openNote(path) {
+  if (VIEW_EXT.test(path)) return openViewer(path);
   try {
     const note = await api('/note?path=' + encodeURIComponent(path));
     state.path = path; state.original = note.content; state.external = isExternal(path);
     ensureEditor(); editor.setValue(note.content); editor.setReadOnly(state.external);
-    els.hint.hidden = true;
+    els.viewer.hidden = true; els.editor.style.display = ''; els.hint.hidden = true;
     els.path.textContent = (state.external ? '⧉ ' : '') + path + (state.external ? '  (read-only)' : '');
     setDirty(false); setView('editor');
     pinnedId = path; refreshGraph();

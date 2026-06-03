@@ -13,13 +13,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     func applicationDidFinishLaunching(_ note: Notification) {
         let frame = NSRect(x: 0, y: 0, width: 1240, height: 840)
         window = NSWindow(contentRect: frame,
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         window.title = "Cortex"
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.backgroundColor = NSColor(calibratedWhite: 0.03, alpha: 1)
+        window.titlebarAppearsTransparent = true        // blend the bar with the dark UI; traffic lights stay
+        window.backgroundColor = NSColor(calibratedWhite: 0.04, alpha: 1)
         window.setFrameAutosaveName("CortexWindow")
+        window.minSize = NSSize(width: 720, height: 520)
 
         web = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
         web.navigationDelegate = self

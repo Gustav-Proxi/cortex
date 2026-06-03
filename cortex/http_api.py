@@ -79,12 +79,25 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, vault.list_notes(folder, limit))
             elif u.path == "/graph":
                 self._send(200, vault.link_graph())
+            elif u.path == "/raw":
+                self._serve_file(vault.resolve_readable((q.get("path") or [""])[0]))
             else:
                 self._serve_static(u.path)
         except vault.VaultError as e:
             self._send(400, {"error": str(e)})
         except Exception as e:  # noqa: BLE001 — surface any engine error as JSON
             self._send(500, {"error": str(e)})
+
+    def _serve_file(self, full) -> None:
+        """Serve a file's raw bytes (images / PDFs) with its mime type. Loopback."""
+        data = full.read_bytes()
+        ctype = mimetypes.guess_type(str(full))[0] or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _serve_static(self, urlpath: str) -> None:
         """Serve the local web UI from WEBAPP_DIR (loopback only). Path-safe:
@@ -108,8 +121,21 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _attach(self, u) -> None:
+        """Save a pasted/dropped binary (image) into the vault's attachments/."""
+        n = int(self.headers.get("Content-Length", 0) or 0)
+        raw = self.rfile.read(n) if n > 0 else b""
+        name = (parse_qs(u.query).get("name") or ["paste.png"])[0]
+        rel = "attachments/" + (Path(name).name or "paste.png")  # basename only
+        try:
+            self._send(200, vault.write_bytes(rel, raw))
+        except vault.VaultError as e:
+            self._send(400, {"error": str(e)})
+
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/attach":
+            return self._attach(u)
         data = self._read_json()
         try:
             if u.path == "/search":

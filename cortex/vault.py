@@ -214,6 +214,46 @@ def read_any(path_id: str) -> str:
     return read_note(cand)
 
 
+def _atomic_write_bytes(full: Path, data: bytes) -> None:
+    full.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(full.parent), prefix=f".{full.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data); f.flush(); os.fsync(f.fileno())
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, full)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def write_bytes(rel: str, data: bytes) -> dict:
+    """Write a binary attachment into the vault (path-safe, atomic) — e.g. an
+    image pasted into the editor."""
+    _ensure_allowed(rel)
+    _atomic_write_bytes(resolve(rel), data)
+    return {"path": rel, "bytes": len(data)}
+
+
+def resolve_readable(path_id: str) -> Path:
+    """Absolute Path of a readable file — a vault note OR an external-root file —
+    for serving raw bytes (images / PDFs). Path-safe; rejects anything outside."""
+    cand = (path_id or "").strip()
+    if os.path.isabs(cand):
+        full = Path(cand).resolve()
+        if not _under_extra_root(full):
+            raise VaultError(f"path is not under an indexed root: {path_id}")
+    else:
+        _ensure_allowed(cand)
+        full = resolve(cand)
+    if not full.is_file():
+        raise VaultError(f"file not found: {path_id}")
+    return full
+
+
 def get_section(rel: str, heading: str) -> str:
     """Return the body under the given ATX heading (matched case-insensitively)."""
     md = read_note(rel)
