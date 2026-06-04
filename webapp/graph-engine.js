@@ -161,10 +161,10 @@
       const nodes = this.nodes, n = nodes.length;
       if (!n) return;
       const a = this.alpha;
-      const charge = this.opts.mini ? -900 : -1800;
-      const repRange = this.opts.mini ? 420 : 950;
+      const charge = this.opts.mini ? -700 : -1200;
+      const repRange = this.opts.mini ? 380 : 620;
       const linkDist = this.opts.mini ? 48 : 92, linkK = 0.42;
-      const center = this.opts.mini ? 0.05 : 0.02;
+      const center = this.opts.mini ? 0.06 : 0.06;
       // repulsion + collision (O(n^2) — fine for <200 nodes)
       for (let i = 0; i < n; i++) {
         const p = nodes[i];
@@ -198,13 +198,13 @@
         s.vx += fx; s.vy += fy; t.vx -= fx; t.vy -= fy;
       }
       // centering + integrate (with hard clamps so the sim can never diverge)
-      const vmax = this.opts.mini ? 50 : 80;
+      const vmax = this.opts.mini ? 38 : 42;
       const pmax = 6000;
       for (const p of nodes) {
         p.vx -= p.x * center * a * 0.06;
         p.vy -= p.y * center * a * 0.06;
         if (p === this._drag) continue;
-        p.vx *= 0.82; p.vy *= 0.82;
+        p.vx *= 0.80; p.vy *= 0.80;
         if (!isFinite(p.vx)) p.vx = 0;
         if (!isFinite(p.vy)) p.vy = 0;
         p.vx = clamp(p.vx, -vmax, vmax);
@@ -212,7 +212,7 @@
         p.x = clamp(p.x + p.vx, -pmax, pmax);
         p.y = clamp(p.y + p.vy, -pmax, pmax);
       }
-      this.alpha *= 0.985;
+      this.alpha *= 0.97;
       if (this.alpha < 0.01) this.alpha = 0;
     }
     _r(nd) {
@@ -405,7 +405,7 @@
         if (dragging) {
           const w = this._toWorld(px, py);
           dragging.x = w.x; dragging.y = w.y; dragging.vx = 0; dragging.vy = 0;
-          this._drag = dragging; this.alpha = Math.max(this.alpha, 0.35); this._start();
+          this._drag = dragging; this.alpha = Math.max(this.alpha, 0.12); this._start();
           moved = true; return;
         }
         if (panning) {
@@ -432,7 +432,7 @@
         const [px, py] = localXY(e);
         if (dragging && !moved && this.opts.onNodeClick) this.opts.onNodeClick(dragging);
         else if (!dragging && !moved && this.opts.onBackground) this.opts.onBackground();
-        if (dragging) { this._drag = null; this.alpha = Math.max(this.alpha, 0.3); }
+        if (dragging) { this._drag = null; this.alpha = Math.max(this.alpha, 0.1); }
         dragging = null; panning = false; this._start();
       });
       c.addEventListener('pointerleave', () => {
