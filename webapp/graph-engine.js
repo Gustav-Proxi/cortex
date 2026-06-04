@@ -161,10 +161,10 @@
       const nodes = this.nodes, n = nodes.length;
       if (!n) return;
       const a = this.alpha;
-      const charge = this.opts.mini ? -700 : -1200;
-      const repRange = this.opts.mini ? 380 : 620;
-      const linkDist = this.opts.mini ? 48 : 92, linkK = 0.42;
-      const center = this.opts.mini ? 0.06 : 0.06;
+      const charge = this.opts.mini ? -1100 : -2600;
+      const repRange = this.opts.mini ? 600 : 1200;
+      const linkDist = this.opts.mini ? 80 : 180, linkK = 0.38;
+      const center = this.opts.mini ? 0.05 : 0.035;
       // repulsion + collision (O(n^2) — fine for <200 nodes)
       for (let i = 0; i < n; i++) {
         const p = nodes[i];
@@ -180,7 +180,7 @@
             p.vx += fx; p.vy += fy; q.vx -= fx; q.vy -= fy;
           }
           // soft collision so dots never overlap
-          const rr = (this._r(p) + this._r(q) + 10);
+          const rr = (this._r(p) + this._r(q) + 26);
           if (dist < rr) {
             const push = (rr - dist) / dist * 0.6 * a;
             p.vx += dx * push; p.vy += dy * push; q.vx -= dx * push; q.vy -= dy * push;
@@ -198,7 +198,7 @@
         s.vx += fx; s.vy += fy; t.vx -= fx; t.vy -= fy;
       }
       // centering + integrate (with hard clamps so the sim can never diverge)
-      const vmax = this.opts.mini ? 38 : 42;
+      const vmax = this.opts.mini ? 44 : 52;
       const pmax = 6000;
       for (const p of nodes) {
         p.vx -= p.x * center * a * 0.06;
@@ -269,11 +269,11 @@
           grad.addColorStop(0, rgba(s.color || '#fff', 0.95));
           grad.addColorStop(1, rgba(t.color || '#fff', 0.95));
           ctx.strokeStyle = grad;
-          ctx.lineWidth = 1.6 / k;
-          ctx.shadowColor = rgba(s.color || '#fff', 0.7);
-          ctx.shadowBlur = 7 * gm;
-          ctx.setLineDash([7 / k, 9 / k]);
-          ctx.lineDashOffset = -((now * 0.045) % (16 / k));
+          ctx.lineWidth = 1.3 / k;
+          ctx.shadowColor = rgba(s.color || '#fff', 0.5);
+          ctx.shadowBlur = 4 * gm;
+          ctx.setLineDash([6 / k, 10 / k]);
+          ctx.lineDashOffset = -((now * 0.012) % (16 / k));   // calm, slow flow
         } else {
           // resting: white-alpha, brighter near the nodes so edges read as joints
           const a = l.kind === 'sem' ? (faded ? 0.035 : 0.11) : (faded ? 0.05 : 0.2);
@@ -368,10 +368,10 @@
       const mode = this.opts.labels;
       if (this.opts.mini) return 0;            // mini-graph: no labels (tooltip instead)
       if (mode === 'off') return 0;
-      if (mode === 'all') return k > 1.25 ? 0.92 : k > 0.7 ? 0.5 : 0;
-      // hubs
-      if ((nd.deg || 0) >= this.opts.hubDeg && k > 0.5) return 0.78;
-      if (k > 1.9) return 0.5;
+      if (mode === 'all') return k > 1.7 ? 0.92 : k > 1.05 ? 0.52 : 0;
+      // hubs: only the well-connected nodes, and only once you're zoomed in a bit
+      if ((nd.deg || 0) >= this.opts.hubDeg && k > 0.9) return 0.72;
+      if (k > 2.0) return 0.5;
       return 0;
     }
 
