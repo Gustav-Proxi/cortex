@@ -2,6 +2,8 @@
 // :8788. Graphite design system per mac/cortex-mac.css: monochrome chrome, colour
 // only in the constellation + domain dots. Build with build.sh (system swiftc).
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 @main
 struct CortexApp: App {
@@ -17,7 +19,18 @@ struct CortexApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
-            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .appInfo) {
+                Button("About Cortex") { state.showAbout() }
+            }
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { state.checkForUpdates() }
+            }
+            CommandGroup(replacing: .newItem) {       // restores the File menu
+                Button("Open Note…") { state.openNotePicker() }.keyboardShortcut("o", modifiers: .command)
+                Button("Open Vault…") { state.showOnboarding = true }.keyboardShortcut("o", modifiers: [.command, .shift])
+                Divider()
+                Button("Reveal Vault in Finder") { state.revealVault() }
+            }
             CommandGroup(after: .toolbar) {
                 Button("Search") { state.showSpotlight = true }.keyboardShortcut("k", modifiers: .command)
                 Button("Constellation") { state.route = .graph }.keyboardShortcut("1", modifiers: .command)
@@ -26,6 +39,7 @@ struct CortexApp: App {
             }
             CommandGroup(replacing: .help) {
                 Button("Welcome to Cortex") { state.showOnboarding = true }
+                Button("Cortex on GitHub") { state.openRepo() }
             }
         }
     }
@@ -99,16 +113,75 @@ final class AppState: ObservableObject {
         await reload()
         startPolling()
         startWatching()
+        checkForUpdates(silent: true)        // auto-check GitHub Releases on launch
     }
 
     private var watcher: VaultWatcher?
     private func startWatching() {
-        let vault = ("~/Claude" as NSString).expandingTildeInPath
-        watcher = VaultWatcher(path: vault) { [weak self] in
+        watcher = VaultWatcher(path: vaultPath) { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
                 await self.poll()
                 self.syncPulse &+= 1          // instant "Synced" feedback, even if no count changed
+            }
+        }
+    }
+
+    // MARK: - menu actions
+
+    var vaultPath: String { ("~/Claude" as NSString).expandingTildeInPath }
+
+    func revealVault() { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: vaultPath) }
+    func openRepo()    { NSWorkspace.shared.open(URL(string: "https://github.com/Gustav-Proxi/cortex")!) }
+
+    /// File ▸ Open Note… — pick a `.md` inside the vault and open it in the reader.
+    func openNotePicker() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true; panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
+        if let md = UTType(filenameExtension: "md") { panel.allowedContentTypes = [md] }
+        panel.directoryURL = URL(fileURLWithPath: vaultPath); panel.prompt = "Open"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let root = vaultPath.hasSuffix("/") ? vaultPath : vaultPath + "/"
+        if url.path.hasPrefix(root) { open(String(url.path.dropFirst(root.count))) }
+        else { alert("Outside the vault", "That note isn't inside \(vaultPath), so the engine can't open it.") }
+    }
+
+    func showAbout() {
+        let credits = NSAttributedString(
+            string: "The local-first brain for your notes — a thin client of the local Cortex engine.\n\ngithub.com/Gustav-Proxi/cortex",
+            attributes: [.foregroundColor: NSColor.secondaryLabelColor, .font: NSFont.systemFont(ofSize: 11)])
+        NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "Cortex", .credits: credits])
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func alert(_ title: String, _ msg: String) {
+        let a = NSAlert(); a.messageText = title; a.informativeText = msg; a.addButton(withTitle: "OK"); a.runModal()
+    }
+
+    // MARK: - auto-update (GitHub Releases)
+
+    @Published var checkingUpdate = false
+
+    func checkForUpdates(silent: Bool = false) {
+        guard !checkingUpdate else { return }
+        checkingUpdate = true
+        Task { @MainActor in
+            defer { checkingUpdate = false }
+            guard let rel = await Updater.latest() else {
+                if !silent { alert("Couldn't check for updates", "Couldn't reach GitHub — try again later.") }
+                return
+            }
+            if Updater.isNewer(rel.version, than: Updater.current) {
+                let a = NSAlert()
+                a.messageText = "Update available — Cortex \(rel.version)"
+                a.informativeText = "You have \(Updater.current). Download and install \(rel.version)? Cortex will relaunch."
+                a.addButton(withTitle: "Install & Relaunch"); a.addButton(withTitle: "Later")
+                if a.runModal() == .alertFirstButtonReturn {
+                    do { try await Updater.install(rel) }
+                    catch { alert("Update failed", error.localizedDescription) }
+                }
+            } else if !silent {
+                alert("You're up to date", "Cortex \(Updater.current) is the latest version.")
             }
         }
     }
