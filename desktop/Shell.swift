@@ -8,7 +8,18 @@ import Foundation
 enum Shell {
     static let model = "nomic-embed-text"
     static let label = "dev.cortex.watch"
-    static var plistPath: String { ("~/Library/LaunchAgents/dev.cortex.watch.plist" as NSString).expandingTildeInPath }
+    /// The engine's launchd agent — reuse whatever cortex-watch plist already exists
+    /// (its label may differ, e.g. an older `com.vaishak.cortex.watch`), so Start/Stop
+    /// act on the real engine instead of spawning a duplicate. Fresh installs get the
+    /// template's `dev.cortex.watch.plist`.
+    static var plistPath: String {
+        let dir = ("~/Library/LaunchAgents" as NSString).expandingTildeInPath
+        if let files = try? FileManager.default.contentsOfDirectory(atPath: dir),
+           let existing = files.first(where: { $0.contains("cortex") && $0.contains("watch") && $0.hasSuffix(".plist") }) {
+            return dir + "/" + existing
+        }
+        return dir + "/dev.cortex.watch.plist"
+    }
     static func venvPython(_ repo: String) -> String { repo + "/.venv/bin/python" }
     static func venvExists(_ repo: String) -> Bool { FileManager.default.fileExists(atPath: venvPython(repo)) }
 
@@ -83,7 +94,7 @@ enum Shell {
                           "\"\(tmpl)\" > \"\(plistPath)\"")
     }
     static func startEngine(repo: String, vault: String) async -> Result {
-        _ = await renderPlist(repo: repo, vault: vault)
+        if !FileManager.default.fileExists(atPath: plistPath) { _ = await renderPlist(repo: repo, vault: vault) }
         return await bash("launchctl load -w \"\(plistPath)\" 2>&1 || launchctl bootstrap gui/$(id -u) \"\(plistPath)\"")
     }
     static func stopEngine() async -> Result {
