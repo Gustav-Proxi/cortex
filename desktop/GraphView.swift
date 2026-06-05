@@ -284,6 +284,7 @@ final class GraphCanvas: NSView {
     private var flow: CGFloat = 0
     var mini = false                 // compact neighbourhood map (reader inspector)
     var pinId: String? = nil         // the focused note in mini mode
+    var circular = false             // force "neuron" spread (the ring looked bad with this many links)
 
     // fit/zoom animation
     private var animFrom: (CGFloat, CGFloat, CGFloat)?
@@ -331,8 +332,12 @@ final class GraphCanvas: NSView {
         }
         setEdges(es)
         applyColors()
-        alpha = 1
-        for _ in 0..<300 { tick() }                          // synchronous warmup, fully off-screen
+        if circular && !mini {
+            arrangeCircle()                                  // even ring — no force clumping
+        } else {
+            alpha = 1
+            for _ in 0..<300 { tick() }                      // synchronous warmup, fully off-screen
+        }
         alpha = 0                                            // appear already settled — no node animation on first paint
         fitInstant(pad: 80)
         // deferred recentre once the view actually has its real size (instant — no zoom animation)
@@ -352,12 +357,14 @@ final class GraphCanvas: NSView {
             nodes[e.s].deg += 1; nodes[e.t].deg += 1
             adj[e.s, default: []].insert(e.t); adj[e.t, default: []].insert(e.s)
         }
-        alpha = max(alpha, 0.18); start()                    // a soft nudge when links change, not a re-explosion
+        if !circular { alpha = max(alpha, 0.18) }            // force mode nudges; ring stays put on live link changes
+        start()
     }
 
     func setColorBy(_ cb: ColorBy) { colorBy = cb; applyColors(); needsDisplay = true }
     func setLabelMode(_ lm: LabelMode) { labelMode = lm; needsDisplay = true }
     func relayout() {
+        if circular && !mini { arrangeCircle(); alpha = 0; fit(dur: 0.5); return }
         let ga = CGFloat.pi * (3 - sqrt(5)), n = nodes.count
         let spread = 64 * sqrt(CGFloat(max(1, n)))
         for i in nodes.indices {
@@ -373,12 +380,28 @@ final class GraphCanvas: NSView {
         for i in nodes.indices {
             let h: UInt32
             switch colorBy {
-            case .domain: h = DomainColor.hex(nodes[i].domain)
+            case .domain: h = DomainColor.identityHex(domain: nodes[i].domain, folder: nodes[i].folder)
             case .status: h = Maturity.hex(nodes[i].status)
             case .folder: h = DomainColor.hex(nodes[i].folder?.split(separator: "/").first.map(String.init))
             }
             nodes[i].color = NSColor(srgbRed: CGFloat((h>>16)&0xff)/255, green: CGFloat((h>>8)&0xff)/255,
                                      blue: CGFloat(h&0xff)/255, alpha: 1)
+        }
+    }
+
+    // Even ring layout — nodes spaced by angle, grouped by domain so colours form
+    // arcs, ordered by degree within a domain. Frozen (no sim) so it never clumps.
+    private func arrangeCircle() {
+        let n = nodes.count; if n == 0 { return }
+        let order = nodes.indices.sorted {
+            let da = nodes[$0].domain ?? "~", db = nodes[$1].domain ?? "~"
+            return da != db ? da < db : nodes[$0].deg > nodes[$1].deg
+        }
+        let r = max(320, CGFloat(n) * 34 / (2 * .pi))
+        for (k, i) in order.enumerated() {
+            let th = CGFloat(k) / CGFloat(n) * 2 * .pi - .pi/2
+            nodes[i].x = cos(th) * r; nodes[i].y = sin(th) * r
+            nodes[i].vx = 0; nodes[i].vy = 0
         }
     }
 
@@ -647,7 +670,7 @@ final class GraphCanvas: NSView {
         case .off: return 0
         case .all: return k > 1.25 ? 0.92 : (k > 0.7 ? 0.5 : 0)
         case .hubs:
-            if nodes[i].deg >= 5 && k > 0.5 { return 0.78 }
+            if nodes[i].deg >= 8 && k > 0.5 { return 0.85 }   // only the big hubs, so labels stop piling up
             return k > 1.9 ? 0.5 : 0
         }
     }

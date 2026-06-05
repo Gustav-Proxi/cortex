@@ -127,8 +127,8 @@ private struct NoteRow: View {
         HStack(spacing: 9) {
             Text(Maturity.glyph(note.status))
                 .font(.system(size: 9))
-                .foregroundStyle(DomainColor.color(note.domain))
-                .shadow(color: DomainColor.color(note.domain).opacity(0.8), radius: 3)
+                .foregroundStyle(DomainColor.identityColor(domain: note.domain, folder: note.node.folder))
+                .shadow(color: DomainColor.identityColor(domain: note.domain, folder: note.node.folder).opacity(0.8), radius: 3)
                 .frame(width: 12)
             Text(note.title).font(Theme.ui(13)).foregroundStyle(Theme.txt).lineLimit(1)
             Spacer(minLength: 0)
@@ -271,8 +271,8 @@ private struct ReaderScreen: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if let n = state.selected {
                         HStack(spacing: 8) {
-                            Circle().fill(DomainColor.color(n.domain)).frame(width: 7, height: 7)
-                                .shadow(color: DomainColor.color(n.domain).opacity(0.8), radius: 4)
+                            Circle().fill(DomainColor.identityColor(domain: n.domain, folder: n.node.folder)).frame(width: 7, height: 7)
+                                .shadow(color: DomainColor.identityColor(domain: n.domain, folder: n.node.folder).opacity(0.8), radius: 4)
                             Text(n.path).font(Theme.mono(12)).foregroundStyle(Theme.txt3)
                         }.padding(.bottom, 16)
                         Text(n.title).font(Theme.serif(34, .semibold)).foregroundStyle(Theme.txt)
@@ -280,7 +280,7 @@ private struct ReaderScreen: View {
                         HStack(spacing: 14) {
                             Text(Maturity.label(n.type ?? "note")).foregroundStyle(Theme.txt3)
                             Label { Text(Maturity.label(n.status)) } icon: {
-                                Text(Maturity.glyph(n.status)).foregroundStyle(DomainColor.color(n.domain))
+                                Text(Maturity.glyph(n.status)).foregroundStyle(DomainColor.identityColor(domain: n.domain, folder: n.node.folder))
                             }
                             Text("\(n.outLinks) links").foregroundStyle(Theme.txt3)
                             Text("\(n.backLinks) backlinks").foregroundStyle(Theme.txt3)
@@ -322,8 +322,8 @@ private struct Inspector: View {
                     }
                     InspSection(title: "PROPERTIES") {
                         Prop(k: "Type", v: Maturity.label(n.type ?? "note"))
-                        Prop(k: "Status", v: Maturity.label(n.status), dot: DomainColor.color(n.domain))
-                        Prop(k: "Domain", v: (n.domain?.capitalized ?? "—"), dot: DomainColor.color(n.domain))
+                        Prop(k: "Status", v: Maturity.label(n.status), dot: DomainColor.identityColor(domain: n.domain, folder: n.node.folder))
+                        Prop(k: "Domain", v: (n.domain?.capitalized ?? "—"), dot: DomainColor.identityColor(domain: n.domain, folder: n.node.folder))
                         Prop(k: "Links", v: "\(n.outLinks) out · \(n.backLinks) in")
                     }
                     if !state.related.isEmpty {
@@ -412,7 +412,7 @@ private struct NoteCard: View {
     let note: VaultNote
     @EnvironmentObject var state: AppState
     @State private var hover = false
-    var c: Color { DomainColor.color(note.domain) }
+    var c: Color { DomainColor.identityColor(domain: note.domain, folder: note.node.folder) }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {

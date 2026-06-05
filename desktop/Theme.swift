@@ -104,6 +104,18 @@ enum DomainColor {
         return jewels[abs(d.hashValue) % jewels.count]
     }
     static func color(_ domain: String?) -> Color { Color(hex: hex(domain)) }
+
+    /// A note's identity colour: its domain hue if set, otherwise a stable hue from
+    /// its top-level folder — so the ~45 domain-less utility notes (READMEs, resumes,
+    /// decisions…) read as grouped-by-area instead of an undifferentiated grey.
+    static func identityHex(domain: String?, folder: String?) -> UInt32 {
+        if let d = domain, !d.isEmpty, d.lowercased() != "none" { return hex(d) }
+        if let f = folder?.split(separator: "/").first.map(String.init), !f.isEmpty { return hex(f) }
+        return fallback
+    }
+    static func identityColor(domain: String?, folder: String?) -> Color {
+        Color(hex: identityHex(domain: domain, folder: folder))
+    }
     /// Pretty legend/inspector label for a raw domain key (kebab → Title Case,
     /// with common ML acronyms upper-cased). e.g. "medical-ai" → "Medical AI".
     static func label(_ domain: String) -> String {
