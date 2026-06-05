@@ -10,6 +10,7 @@
 [![100% local](https://img.shields.io/badge/100%25-local-2EA043?style=flat-square)]()
 [![Embeddings: Ollama](https://img.shields.io/badge/embeddings-Ollama-000000?style=flat-square&logo=ollama&logoColor=white)](https://ollama.com)
 [![Vectors: sqlite-vec](https://img.shields.io/badge/vectors-sqlite--vec-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://github.com/asg017/sqlite-vec)
+[![macOS app](https://img.shields.io/badge/macOS-app-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/Gustav-Proxi/cortex/releases)
 
 ![Cortex](https://readme-typing-svg.demolab.com/?font=Fira+Code&weight=600&size=22&duration=3500&pause=800&center=true&vCenter=true&width=760&height=55&color=7C3AED&lines=Your+vault.+Your+machine.+Your+second+brain.;Semantic+%2B+literal+search+over+every+note.;The+LLM+maintains+the+wiki+%E2%80%94+you+just+think.;Local+embeddings.+Nothing+leaves+your+machine.)
 
@@ -54,9 +55,14 @@ flowchart LR
     S -->|watchdog re-embeds changes| V
     V --> FS["vault.py\nfile CRUD · links · search"]
     FS --> MCP["FastMCP server"]
+    FS --> HTTP["http_api :8788"]
     MCP -->|stdio| LC["Claude Code / Desktop"]
     MCP -->|--http| RE["remote clients"]
+    HTTP --> OBS["Obsidian plugin"]
+    HTTP --> APP["Cortex.app · macOS"]
 ```
+
+One engine, three clients: Claude over MCP, and the Obsidian plugin + the native macOS app over the loopback JSON API.
 
 ## Design choices
 
@@ -144,10 +150,40 @@ the vault) that talks to the engine over a small loopback JSON API
 active note, Smart-Connections-style, refreshing as you navigate), **look up
 selection**, and **capture** (create a note via the engine — a write).
 
-So the brain has two faces over one engine: **Claude** via MCP (full read+write,
-stdio) and **Obsidian** via the plugin (search / connections / capture, HTTP).
-Install: symlink `obsidian-plugin/` to `~/Claude/.obsidian/plugins/cortex` and
-enable it — see `obsidian-plugin/README.md`.
+So the brain has **three faces** over one engine: **Claude** via MCP (full read+write,
+stdio), **Obsidian** via the plugin (search / connections / capture, HTTP), and a
+**native macOS app** (the constellation + reader + Spotlight, HTTP — see below).
+Install the plugin: symlink `obsidian-plugin/` to `~/Claude/.obsidian/plugins/cortex`
+and enable it — see `obsidian-plugin/README.md`.
+
+## The desktop app — Cortex.app
+
+A native **macOS app** (`desktop/`) is the third face over the same engine — a thin
+SwiftUI + Core-Graphics client of the loopback JSON API (`127.0.0.1:8788`). It bakes in
+nothing: embeddings stay in Ollama, the index in `~/.cortex`. It needs the engine
+running (the watcher serves the `:8788` API).
+
+- **Constellation** — a live force-directed graph of the whole vault: luminous orbs
+  coloured by domain (top-level folder as a fallback), curved links, hover focus-paths,
+  hub labels, and full pan / wheel-&-pinch zoom / node-drag. Settles, then idles at ~0 CPU.
+- **Reader + inspector** — a serif markdown reader with a **local-graph mini-map** of the
+  open note's neighbourhood, its properties, and semantic-related notes. Library grid + inline editing.
+- **Spotlight (⌘K)** — semantic / hybrid search and a grounded **Ask** (shells to the
+  Claude CLI; answers on your own subscription, with sources).
+- **Live** — an FSEvents watcher + a short poll keep the graph, link counts, and chunk
+  total in sync as you edit notes anywhere, with no reload; a footer pulse confirms each save.
+- **Onboarding** with a vault folder picker.
+
+**Get it** — download the latest [release](https://github.com/Gustav-Proxi/cortex/releases)
+(`Cortex-macos.zip`), unzip, drag **Cortex.app** to `/Applications`. It's ad-hoc signed, so
+on first launch right-click → **Open** (or `xattr -dr com.apple.quarantine /Applications/Cortex.app`).
+
+**Build from source** — no Xcode project, just system `swiftc`:
+
+```bash
+cd desktop && bash build.sh        # → desktop/Cortex.app
+open desktop/Cortex.app
+```
 
 ## Connect it to an MCP client
 
