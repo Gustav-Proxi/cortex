@@ -1,6 +1,6 @@
 #!/bin/bash
-# Build Cortex.app — a native WKWebView shell over the local engine UI.
-# Needs Xcode command-line tools (swiftc). No other dependencies.
+# Build Cortex.app — native SwiftUI client of the local engine (:8788).
+# Needs Xcode command-line tools (swiftc). No Xcode project, no Rust, no runtime.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -9,14 +9,20 @@ CON="$APP/Contents"
 rm -rf "$APP"
 mkdir -p "$CON/MacOS" "$CON/Resources"
 cp Info.plist "$CON/Info.plist"
+[ -f Cortex.icns ] && cp Cortex.icns "$CON/Resources/Cortex.icns"
 
-swiftc -O -o "$CON/MacOS/Cortex" Cortex.swift \
-    -framework Cocoa -framework WebKit \
-    -target arm64-apple-macosx12.0
+# All app sources except shot.swift (a standalone screenshot dev-tool with its
+# own entry point) and the retired *.webkit-legacy shell.
+SRC=$(ls *.swift | grep -v '^shot\.swift$')
+echo "Compiling: $SRC"
 
-# Ad-hoc sign so Gatekeeper lets a locally-built app run without quarantine pain.
+swiftc -O -o "$CON/MacOS/Cortex" $SRC \
+    -framework SwiftUI -framework AppKit -framework SpriteKit \
+    -target arm64-apple-macosx13.0
+
+# Ad-hoc sign so Gatekeeper runs a locally-built app without quarantine pain.
 codesign --force --deep --sign - "$APP" 2>/dev/null || true
 
 echo "Built $PWD/$APP"
 echo "Run:        open '$PWD/$APP'"
-echo "Install:    cp -R '$PWD/$APP' /Applications/   (then add to Login Items to auto-open)"
+echo "Install:    cp -R '$PWD/$APP' /Applications/"
