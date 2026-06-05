@@ -15,14 +15,18 @@ final class VaultWatcher {
         self.onChange = onChange
         var ctx = FSEventStreamContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
                                        retain: nil, release: nil, copyDescription: nil)
-        let cb: FSEventStreamCallback = { _, info, _, pathsPtr, _, _ in
+        let cb: FSEventStreamCallback = { _, info, numEvents, pathsPtr, _, _ in
             guard let info = info else { return }
             let me = Unmanaged<VaultWatcher>.fromOpaque(info).takeUnretainedValue()
-            let paths = unsafeBitCast(pathsPtr, to: NSArray.self) as? [String] ?? []
+            // With kFSEventStreamCreateFlagUseCFTypes the paths arrive as a CFArray of
+            // CFString — bridge it safely. (Without that flag they're a C char**, and
+            // casting that to NSArray segfaults — which is exactly what crashed.)
+            guard let paths = unsafeBitCast(pathsPtr, to: NSArray.self) as? [String], numEvents > 0 else { return }
             // ignore the engine's own caches / dotfiles; only real note edits count
             if paths.contains(where: { $0.hasSuffix(".md") && !$0.contains("/.") }) { me.onChange() }
         }
-        let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer)
+        let flags = FSEventStreamCreateFlags(
+            kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagUseCFTypes)
         guard let s = FSEventStreamCreate(kCFAllocatorDefault, cb, &ctx, [path] as CFArray,
                                           FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.3, flags) else { return nil }
         stream = s
