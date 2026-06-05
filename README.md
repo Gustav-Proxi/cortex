@@ -4,12 +4,12 @@
 
 **The local-first brain for your notes — one MCP server that gives every LLM client your entire Obsidian vault.**
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](#requirements)
-[![MCP server](https://img.shields.io/badge/MCP-server-7C3AED)](#connect-it-to-an-mcp-client)
-[![100% local](https://img.shields.io/badge/100%25-local-2EA043)]()
-[![Embeddings: Ollama](https://img.shields.io/badge/embeddings-Ollama-000000?logo=ollama&logoColor=white)](https://ollama.com)
-[![Vectors: sqlite-vec](https://img.shields.io/badge/vectors-sqlite--vec-003B57?logo=sqlite&logoColor=white)](https://github.com/asg017/sqlite-vec)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-58A6FF?style=flat-square)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](#requirements)
+[![MCP server](https://img.shields.io/badge/MCP-server-7C3AED?style=flat-square)](#connect-it-to-an-mcp-client)
+[![100% local](https://img.shields.io/badge/100%25-local-2EA043?style=flat-square)]()
+[![Embeddings: Ollama](https://img.shields.io/badge/embeddings-Ollama-000000?style=flat-square&logo=ollama&logoColor=white)](https://ollama.com)
+[![Vectors: sqlite-vec](https://img.shields.io/badge/vectors-sqlite--vec-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://github.com/asg017/sqlite-vec)
 
 ![Cortex](https://readme-typing-svg.demolab.com/?font=Fira+Code&weight=600&size=22&duration=3500&pause=800&center=true&vCenter=true&width=760&height=55&color=7C3AED&lines=Your+vault.+Your+machine.+Your+second+brain.;Semantic+%2B+literal+search+over+every+note.;The+LLM+maintains+the+wiki+%E2%80%94+you+just+think.;Local+embeddings.+Nothing+leaves+your+machine.)
 
@@ -47,13 +47,15 @@ The point isn't "search your notes." It's a **persistent, compounding** knowledg
 
 The one-way pipeline that keeps search current:
 
-```
-vault (~/Claude) ─▶ chunk ─▶ nomic-embed-text (Ollama) ─▶ sqlite-vec
-        ▲                                                     │
-        ├──────────── watchdog keeps it in sync ◀─────────────┘
-        │                                                     │
-        └── vault.py (file CRUD · links · search) ─▶ FastMCP server ◀┘
-                                       (stdio: Code/desktop · --http: remote)
+```mermaid
+flowchart LR
+    V["vault\n~/Claude"] -->|chunk| C["nomic-embed-text\nOllama"]
+    C --> S["sqlite-vec"]
+    S -->|watchdog re-embeds changes| V
+    V --> FS["vault.py\nfile CRUD · links · search"]
+    FS --> MCP["FastMCP server"]
+    MCP -->|stdio| LC["Claude Code / Desktop"]
+    MCP -->|--http| RE["remote clients"]
 ```
 
 ## Design choices
