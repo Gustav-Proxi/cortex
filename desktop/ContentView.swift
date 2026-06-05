@@ -143,13 +143,17 @@ private struct NoteRow: View {
 
 private struct SidebarFooter: View {
     @EnvironmentObject var state: AppState
+    @State private var synced = false
+    private var dotColor: Color { synced ? Theme.green : (state.engineUp ? Theme.green : .orange) }
     var body: some View {
         HStack(spacing: 9) {
-            Circle().fill(state.engineUp ? Theme.green : Color.orange)
+            Circle().fill(dotColor)
                 .frame(width: 7, height: 7)
-                .shadow(color: (state.engineUp ? Theme.green : .orange).opacity(0.9), radius: 4)
-            Text(state.engineUp ? "Engine running" : "Engine offline")
-                .font(Theme.ui(11.5)).foregroundStyle(Theme.txt2)
+                .scaleEffect(synced ? 1.8 : 1)
+                .shadow(color: dotColor.opacity(synced ? 1 : 0.9), radius: synced ? 7 : 4)
+                .animation(.easeOut(duration: 0.45), value: synced)
+            Text(synced ? "Synced just now" : (state.engineUp ? "Engine running" : "Engine offline"))
+                .font(Theme.ui(11.5)).foregroundStyle(synced ? Theme.green : Theme.txt2)
             Spacer()
             Button { Task { await state.reload() } } label: {
                 Image(systemName: Sym.refresh).font(.system(size: 12)).foregroundStyle(Theme.txt2)
@@ -157,6 +161,10 @@ private struct SidebarFooter: View {
         }
         .padding(.horizontal, 12).frame(height: 38)
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.hair), alignment: .top)
+        .onChange(of: state.syncPulse) { _ in
+            synced = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.7) { synced = false }
+        }
     }
 }
 

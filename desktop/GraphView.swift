@@ -113,7 +113,9 @@ private struct Legend: View {
     var counts: [(String, Color, Int)] {
         var byDomain: [String: Int] = [:]
         for n in state.notes { byDomain[n.domain ?? "—", default: 0] += 1 }
-        return byDomain.sorted { $0.value > $1.value }.prefix(7).map {
+        // deterministic tiebreak by name — without it, equal-count domains reshuffle
+        // every time the legend re-renders (e.g. on graph hover), which read as glitching.
+        return byDomain.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(7).map {
             ($0.key == "—" ? "Other" : DomainColor.label($0.key),
              DomainColor.color($0.key == "—" ? nil : $0.key), $0.value)
         }
@@ -390,9 +392,11 @@ final class GraphCanvas: NSView {
     private func tick() {
         let n = nodes.count; if n == 0 { return }
         let a = alpha
-        let charge: CGFloat = mini ? -900 : -1800, repRange: CGFloat = mini ? 420 : 950
-        let linkDist: CGFloat = mini ? 48 : 92, linkK: CGFloat = 0.42
-        let center: CGFloat = mini ? 0.05 : 0.02, vmax: CGFloat = mini ? 50 : 60, pmax: CGFloat = 6000
+        // stronger repulsion than the springs → an even spread instead of a dense
+        // central ball (just scaling up wouldn't help: the auto-fit would re-zoom).
+        let charge: CGFloat = mini ? -900 : -3000, repRange: CGFloat = mini ? 420 : 1100
+        let linkDist: CGFloat = mini ? 48 : 100, linkK: CGFloat = 0.38
+        let center: CGFloat = mini ? 0.05 : 0.012, vmax: CGFloat = mini ? 50 : 60, pmax: CGFloat = 6000
         // repulsion + soft collision (O(n²), fine < 200 nodes) — each pair once
         for i in 0..<n {
             for j in (i+1)..<n {
@@ -405,7 +409,7 @@ final class GraphCanvas: NSView {
                     let fx = dx/dist * f, fy = dy/dist * f
                     nodes[i].vx += fx; nodes[i].vy += fy; nodes[j].vx -= fx; nodes[j].vy -= fy
                 }
-                let rr = radius(i) + radius(j) + 10
+                let rr = radius(i) + radius(j) + (mini ? 10 : 18)
                 if dist < rr {
                     let push = (rr - dist) / dist * 0.6 * a
                     nodes[i].vx += dx*push; nodes[i].vy += dy*push

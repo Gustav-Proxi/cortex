@@ -66,6 +66,7 @@ final class AppState: ObservableObject {
     @Published var hoverInfo: HoverInfo?
     @Published var graphChromeHidden = false
     @Published var showOnboarding = false
+    @Published var syncPulse = 0          // bumped on every live vault save (footer flashes "Synced")
 
     // graph controls
     @Published var colorBy: ColorBy = .domain
@@ -97,6 +98,19 @@ final class AppState: ObservableObject {
         } catch { engineUp = false }
         await reload()
         startPolling()
+        startWatching()
+    }
+
+    private var watcher: VaultWatcher?
+    private func startWatching() {
+        let vault = ("~/Claude" as NSString).expandingTildeInPath
+        watcher = VaultWatcher(path: vault) { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                await self.poll()
+                self.syncPulse &+= 1          // instant "Synced" feedback, even if no count changed
+            }
+        }
     }
 
     func reload() async {
@@ -149,7 +163,7 @@ final class AppState: ObservableObject {
         polling = true
         Task { @MainActor in
             while true {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)   // every 5s
+                try? await Task.sleep(nanoseconds: 3_000_000_000)   // backstop poll every 3s
                 await poll()
             }
         }
