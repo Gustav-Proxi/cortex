@@ -342,7 +342,7 @@ private struct Inspector: View {
     }
 }
 
-private struct InspSection<C: View>: View {
+struct InspSection<C: View>: View {
     let title: String; @ViewBuilder var content: C
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -355,7 +355,7 @@ private struct InspSection<C: View>: View {
     }
 }
 
-private struct Prop: View {
+struct Prop: View {
     let k: String; let v: String; var dot: Color? = nil
     var body: some View {
         HStack {

@@ -137,7 +137,7 @@ struct OnboardingOverlay: View {
     }
 }
 
-private struct OBButton: View {
+struct OBButton: View {
     let title: String; let sym: String; let primary: Bool; let action: () -> Void
     @State private var hover = false
     var body: some View {

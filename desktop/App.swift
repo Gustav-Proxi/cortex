@@ -42,6 +42,10 @@ struct CortexApp: App {
                 Button("Cortex on GitHub") { state.openRepo() }
             }
         }
+
+        Settings {                                   // App ▸ Settings… (⌘,) for free
+            SettingsView().environmentObject(state).preferredColorScheme(.dark)
+        }
     }
 }
 
@@ -59,9 +63,19 @@ final class AppState: ObservableObject {
     @Published var byId: [String: VaultNote] = [:]
     @Published var semanticEdges: [GraphEdge] = []
     @Published var chunks = 0
+    @Published var notesIndexed = 0
     @Published var loading = false
     @Published var engineUp = true
     @Published var errorMessage: String?
+
+    // all-in-one control center (engine setup + MCP wiring)
+    @Published var repoPath = UserDefaults.standard.string(forKey: "cortex.repoPath")
+        ?? ("~/cortex" as NSString).expandingTildeInPath
+    @Published var ollamaReady = false
+    @Published var modelReady = false
+    @Published var setupBusy = false
+    @Published var setupStep = ""                       // live status while setting up
+    @Published var mcpStatus: [String: String] = [:]    // client name → result line
 
     // navigation + selection
     @Published var route: Route = .graph
@@ -108,12 +122,13 @@ final class AppState: ObservableObject {
     func bootstrap() async {
         showOnboarding = !UserDefaults.standard.bool(forKey: "cortex.onboarded")
         do {
-            let h = try await api.healthInfo(); chunks = h.chunks; engineUp = true
+            let h = try await api.healthInfo(); chunks = h.chunks; notesIndexed = h.notes; engineUp = true
         } catch { engineUp = false }
         await reload()
         startPolling()
         startWatching()
         checkForUpdates(silent: true)        // auto-check GitHub Releases on launch
+        Task { await refreshSetupStatus() }
     }
 
     private var watcher: VaultWatcher?
@@ -186,6 +201,75 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - all-in-one setup + MCP wiring
+
+    func saveRepoPath(_ p: String) { repoPath = p; UserDefaults.standard.set(p, forKey: "cortex.repoPath") }
+
+    func refreshSetupStatus() async {
+        ollamaReady = await Shell.ollamaRunning()
+        modelReady = ollamaReady ? (await Shell.modelPresent()) : false
+        engineUp = await Shell.engineUp()
+    }
+
+    /// Hands-off setup — the no-terminal path: install/start Ollama, (opt-in) pull the
+    /// model, build the venv, index the vault, start the engine watcher.
+    func setupEverything(downloadModel: Bool) {
+        guard !setupBusy else { return }
+        setupBusy = true; setupStep = "Starting…"
+        Task { @MainActor in
+            defer { setupBusy = false; setupStep = "" }
+            if !(await Shell.ollamaInstalled()) { setupStep = "Installing Ollama…"; _ = await Shell.installOllama() }
+            setupStep = "Starting Ollama…"; _ = await Shell.startOllama(); ollamaReady = await Shell.ollamaRunning()
+            if downloadModel {
+                let present = await Shell.modelPresent()
+                if !present { setupStep = "Downloading model (nomic-embed-text)…"; _ = await Shell.pullModel() }
+            }
+            modelReady = await Shell.modelPresent()
+            if !Shell.venvExists(repoPath) { setupStep = "Setting up the engine…"; _ = await Shell.setupVenv(repoPath) }
+            setupStep = "Building the index…"; _ = await Shell.buildIndex(repoPath, vault: vaultPath)
+            setupStep = "Starting the engine…"; _ = await Shell.startEngine(repo: repoPath, vault: vaultPath)
+            await refreshSetupStatus(); await reload()
+        }
+    }
+
+    func startEngine() { runStep("Starting engine…") { _ = await Shell.startEngine(repo: self.repoPath, vault: self.vaultPath); await self.reload() } }
+    func stopEngine()  { runStep("Stopping engine…")  { _ = await Shell.stopEngine() } }
+    func downloadModel() {
+        runStep("Downloading model…") { _ = await Shell.startOllama(); _ = await Shell.pullModel(); self.modelReady = await Shell.modelPresent() }
+    }
+    private func runStep(_ label: String, _ work: @escaping () async -> Void) {
+        guard !setupBusy else { return }
+        setupBusy = true; setupStep = label
+        Task { @MainActor in defer { setupBusy = false; setupStep = "" }; await work(); await refreshSetupStatus() }
+    }
+
+    enum MCPClient: String, CaseIterable { case claudeCode = "Claude Code", claudeDesktop = "Claude Desktop", codex = "Codex" }
+    func connect(_ c: MCPClient) {
+        mcpStatus[c.rawValue] = "Connecting…"
+        Task { @MainActor in
+            let r: Shell.Result
+            switch c {
+            case .claudeCode:    r = await Shell.connectClaudeCode(repo: repoPath, vault: vaultPath)
+            case .claudeDesktop: r = Shell.connectClaudeDesktop(repo: repoPath, vault: vaultPath)
+            case .codex:         r = await Shell.connectCodex(repo: repoPath, vault: vaultPath)
+            }
+            let tail = r.out.split(separator: "\n").last.map(String.init) ?? "failed"
+            mcpStatus[c.rawValue] = r.ok ? "✓ Connected" : "✕ " + String(tail.prefix(90))
+        }
+    }
+
+    /// Detect which clients already have `cortex` wired, so the panel reflects reality.
+    func detectConnections() async {
+        if Shell.claudeCodeConnected()    { mcpStatus[MCPClient.claudeCode.rawValue] = "✓ Connected" }
+        if Shell.claudeDesktopConnected() { mcpStatus[MCPClient.claudeDesktop.rawValue] = "✓ Connected" }
+        if Shell.codexConnected()         { mcpStatus[MCPClient.codex.rawValue] = "✓ Connected" }
+    }
+    func copyOpenAISnippet() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Shell.openAISnippet(repo: repoPath, vault: vaultPath), forType: .string)
+        mcpStatus["OpenAI"] = "✓ Snippet copied"
+    }
+
     func reload() async {
         loading = true; defer { loading = false }
         do {
@@ -193,7 +277,7 @@ final class AppState: ObservableObject {
             applyGraph(g)
             engineUp = true; errorMessage = nil
             if let sem = try? await api.semanticEdges() { semanticEdges = sem }
-            if let h = try? await api.healthInfo() { chunks = h.chunks }
+            if let h = try? await api.healthInfo() { chunks = h.chunks; notesIndexed = h.notes }
         } catch {
             engineUp = false
             errorMessage = (error as? CortexError)?.errorDescription ?? error.localizedDescription
@@ -222,7 +306,7 @@ final class AppState: ObservableObject {
     func poll() async {
         // refresh chunk count every cycle so a content-only edit (re-embed, no link
         // change) is still visibly reflected; only re-pull the graph when it changed.
-        if let h = try? await api.healthInfo() { engineUp = true; if h.chunks != chunks { chunks = h.chunks } }
+        if let h = try? await api.healthInfo() { engineUp = true; if h.chunks != chunks { chunks = h.chunks }; notesIndexed = h.notes }
         guard let g = try? await api.graph() else { engineUp = false; return }
         engineUp = true
         guard graphSig(g) != lastGraphSig else { return }
