@@ -290,8 +290,16 @@ final class AppState: ObservableObject {
         let ns = g.nodes.map { VaultNote(node: $0, outLinks: out[$0.id] ?? 0, backLinks: back[$0.id] ?? 0) }
         graph = g; notes = ns
         byId = Dictionary(uniqueKeysWithValues: ns.map { ($0.id, $0) })
+        stemIndex = Dictionary(ns.map { (Self.stem($0.path), $0.path) }, uniquingKeysWith: { a, _ in a })
         lastGraphSig = graphSig(g)
     }
+
+    // wiki-link resolution for the reader — Obsidian-style, by basename/stem.
+    private var stemIndex: [String: String] = [:]
+    static func stem(_ path: String) -> String {
+        (path as NSString).lastPathComponent.replacingOccurrences(of: ".md", with: "").lowercased()
+    }
+    func resolveWiki(_ target: String) -> String? { stemIndex[Self.stem(target)] }
 
     private var lastGraphSig = ""
     private func graphSig(_ g: Graph) -> String {

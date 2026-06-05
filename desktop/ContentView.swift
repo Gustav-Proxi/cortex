@@ -456,55 +456,138 @@ private struct DailyStub: View {
 // MARK: - Prose (serif markdown reader)
 
 struct Prose: View {
+    @EnvironmentObject var state: AppState
     let text: String
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(blocks().enumerated()), id: \.offset) { item in item.element.view }
+        VStack(alignment: .leading, spacing: 11) {
+            ForEach(Array(blocks().enumerated()), id: \.offset) { _, b in render(b) }
+        }
+        .tint(Theme.accent)                          // [[wikilinks]] + external links rendered as links
+        .environment(\.openURL, OpenURLAction { url in
+            if url.scheme == "cortex" {              // internal note link → navigate in-app
+                if let p = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "path" })?.value, !p.isEmpty { state.open(p) }
+                return .handled
+            }
+            return .systemAction                     // external URL → default browser
+        })
+    }
+
+    private func inline(_ s: String) -> AttributedString { ProseInline.attr(s, resolve: state.resolveWiki) }
+
+    enum B {
+        case h1(String), h2(String), h3(String), quote(String), code(String)
+        case bullet(String), task(String, Bool), numbered(String, String), tableRow(String), hr, para(String)
+    }
+
+    @ViewBuilder private func render(_ b: B) -> some View {
+        switch b {
+        case .h1(let s): Text(inline(s)).font(Theme.serif(26, .semibold)).foregroundStyle(Theme.txt).padding(.top, 20)
+        case .h2(let s): Text(inline(s)).font(Theme.serif(21, .semibold)).foregroundStyle(Theme.txt).padding(.top, 16)
+        case .h3(let s): Text(inline(s)).font(Theme.serif(17, .semibold)).foregroundStyle(Theme.txt).padding(.top, 8)
+        case .quote(let s):
+            HStack(alignment: .top, spacing: 12) {
+                RoundedRectangle(cornerRadius: 2).fill(Theme.accent.opacity(0.55)).frame(width: 3)
+                Text(inline(s)).font(Theme.serif(16, .regular)).foregroundStyle(Theme.txt2).italic().lineSpacing(5)
+            }.fixedSize(horizontal: false, vertical: true)
+        case .code(let s):
+            Text(s).font(Theme.mono(13)).foregroundStyle(Color(hex: 0xc8ccd4)).textSelection(.enabled)
+                .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.panel))
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.hair))
+        case .bullet(let s): row("•", inline(s))
+        case .task(let s, let done): row(done ? "☑︎" : "☐", inline(s), dim: done)
+        case .numbered(let n, let s): row(n + ".", inline(s))
+        case .tableRow(let s): Text(s).font(Theme.mono(12.5)).foregroundStyle(Theme.txt2).textSelection(.enabled)
+        case .hr: Rectangle().fill(Theme.hair).frame(height: 1).padding(.vertical, 5)
+        case .para(let s): Text(inline(s)).font(Theme.serif(17, .regular)).foregroundStyle(Color.w(0.84)).lineSpacing(5).textSelection(.enabled)
         }
     }
-    private enum B { case h2(String), h3(String), code(String), bullet(String), para(String)
-        @ViewBuilder var view: some View {
-            switch self {
-            case .h2(let s): Text(ProseInline.attr(s)).font(Theme.serif(21, .semibold)).foregroundStyle(Theme.txt).padding(.top, 18)
-            case .h3(let s): Text(ProseInline.attr(s)).font(Theme.serif(17, .semibold)).foregroundStyle(Theme.txt).padding(.top, 10)
-            case .code(let s): Text(s).font(Theme.mono(13)).foregroundStyle(Color(hex: 0xc8ccd4)).textSelection(.enabled)
-                    .padding(15).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.panel))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.hair))
-            case .bullet(let s): HStack(alignment: .top, spacing: 10) {
-                    Text("•").foregroundStyle(Theme.txt3); Text(ProseInline.attr(s)).foregroundStyle(Color.w(0.84))
-                }.font(Theme.serif(17, .regular)).lineSpacing(5)
-            case .para(let s): Text(ProseInline.attr(s)).font(Theme.serif(17, .regular)).foregroundStyle(Color.w(0.84))
-                    .lineSpacing(5).textSelection(.enabled)
+    @ViewBuilder private func row(_ marker: String, _ content: AttributedString, dim: Bool = false) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            Text(marker).font(Theme.serif(16)).foregroundStyle(Theme.txt3).frame(minWidth: 15, alignment: .trailing)
+            Text(content).font(Theme.serif(17, .regular)).foregroundStyle(Color.w(dim ? 0.45 : 0.84)).strikethrough(dim).lineSpacing(5)
+        }
+    }
+
+    // Drop the leading YAML frontmatter — it's surfaced as Properties, not body.
+    private func bodyText() -> String {
+        let lines = text.components(separatedBy: "\n")
+        if lines.first?.trimmingCharacters(in: .whitespaces) == "---" {
+            for j in 1..<lines.count where lines[j].trimmingCharacters(in: .whitespaces) == "---" {
+                return lines[(j+1)...].joined(separator: "\n").trimmingCharacters(in: .newlines)
             }
         }
+        return text
     }
+
     private func blocks() -> [B] {
-        var out: [B] = []; let lines = text.components(separatedBy: "\n"); var i = 0; var para = ""
+        var out: [B] = []; let lines = bodyText().components(separatedBy: "\n"); var i = 0; var para = ""
         func flush() { if !para.isEmpty { out.append(.para(para)); para = "" } }
         while i < lines.count {
-            let ln = lines[i]
-            if ln.hasPrefix("```") { flush(); var code = ""; i += 1
-                while i < lines.count, !lines[i].hasPrefix("```") { code += lines[i] + "\n"; i += 1 }
+            let ln = lines[i]; let t = ln.trimmingCharacters(in: .whitespaces)
+            if ln.hasPrefix("```") || ln.hasPrefix("~~~") { flush(); var code = ""; i += 1
+                while i < lines.count, !(lines[i].hasPrefix("```") || lines[i].hasPrefix("~~~")) { code += lines[i] + "\n"; i += 1 }
                 out.append(.code(code.trimmingCharacters(in: .newlines))); i += 1; continue }
-            if ln.hasPrefix("# ") || ln.hasPrefix("## ") { flush(); out.append(.h2(strip(ln))) }
-            else if ln.hasPrefix("### ") || ln.hasPrefix("#### ") { flush(); out.append(.h3(strip(ln))) }
-            else if ln.hasPrefix("- ") || ln.hasPrefix("* ") { flush(); out.append(.bullet(String(ln.dropFirst(2)))) }
-            else if ln.trimmingCharacters(in: .whitespaces).isEmpty { flush() }
+            if t == "---" || t == "***" || t == "___" { flush(); out.append(.hr) }
+            else if ln.hasPrefix("# ") { flush(); out.append(.h1(strip(ln))) }
+            else if ln.hasPrefix("## ") { flush(); out.append(.h2(strip(ln))) }
+            else if ln.hasPrefix("### ") || ln.hasPrefix("#### ") || ln.hasPrefix("##### ") || ln.hasPrefix("###### ") { flush(); out.append(.h3(strip(ln))) }
+            else if ln.hasPrefix("> ") || ln == ">" { flush(); out.append(.quote(String(ln.dropFirst(min(2, ln.count))))) }
+            else if let task = taskItem(t) { flush(); out.append(.task(task.0, task.1)) }
+            else if ln.hasPrefix("- ") || ln.hasPrefix("* ") || ln.hasPrefix("+ ") { flush(); out.append(.bullet(String(ln.dropFirst(2)))) }
+            else if let num = numbered(ln) { flush(); out.append(.numbered(num.0, num.1)) }
+            else if t.hasPrefix("|") { flush(); out.append(.tableRow(t)) }
+            else if t.isEmpty { flush() }
             else { para += (para.isEmpty ? "" : " ") + ln }
             i += 1
         }
         flush(); return out
     }
+    private func taskItem(_ t: String) -> (String, Bool)? {
+        if t.hasPrefix("- [ ] ") { return (String(t.dropFirst(6)), false) }
+        if t.hasPrefix("- [x] ") || t.hasPrefix("- [X] ") { return (String(t.dropFirst(6)), true) }
+        return nil
+    }
+    private func numbered(_ ln: String) -> (String, String)? {
+        guard let dot = ln.firstIndex(of: "."), dot > ln.startIndex else { return nil }
+        let num = String(ln[ln.startIndex..<dot])
+        let after = ln.index(after: dot)
+        guard !num.isEmpty, num.allSatisfy(\.isNumber), after < ln.endIndex, ln[after] == " " else { return nil }
+        return (num, String(ln[ln.index(after: after)...]))
+    }
     private func strip(_ l: String) -> String { String(l.drop { $0 == "#" }).trimmingCharacters(in: .whitespaces) }
 }
 
 enum ProseInline {
-    static func attr(_ s: String) -> AttributedString {
-        let cleaned = s.replacingOccurrences(of: "[[", with: "").replacingOccurrences(of: "]]", with: "")
-        if let a = try? AttributedString(markdown: cleaned,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) { return a }
-        return AttributedString(cleaned)
+    static func attr(_ s: String) -> AttributedString { attr(s, resolve: { _ in nil }) }
+    static func attr(_ s: String, resolve: (String) -> String?) -> AttributedString {
+        let md = wikiToMarkdown(s, resolve: resolve)
+        if let a = try? AttributedString(markdown: md, options: .init(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace, failurePolicy: .returnPartiallyParsedIfPossible)) { return a }
+        return AttributedString(s.replacingOccurrences(of: "[[", with: "").replacingOccurrences(of: "]]", with: ""))
+    }
+    /// Convert `[[Target]]` / `[[Target|Alias]]` / `[[Target#Heading]]` into a markdown
+    /// link to an in-app `cortex://open?path=…` URL (resolved by basename when possible).
+    static func wikiToMarkdown(_ s: String, resolve: (String) -> String?) -> String {
+        guard s.contains("[["), let re = try? NSRegularExpression(pattern: #"\[\[([^\]]+)\]\]"#) else { return s }
+        let ns = s as NSString; var out = ""; var last = 0
+        re.enumerateMatches(in: s, range: NSRange(location: 0, length: ns.length)) { m, _, _ in
+            guard let m = m else { return }
+            out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            let inner = ns.substring(with: m.range(at: 1))
+            let aliasSplit = inner.split(separator: "|", maxSplits: 1).map(String.init)
+            let targetHeading = aliasSplit[0]
+            let target = String(targetHeading.split(separator: "#", maxSplits: 1).first ?? "")
+            let display = aliasSplit.count > 1 ? aliasSplit[1] : targetHeading.replacingOccurrences(of: "#", with: " › ")
+            let path = resolve(target) ?? target
+            let enc = path.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? path
+            let safe = display.replacingOccurrences(of: "[", with: "(").replacingOccurrences(of: "]", with: ")")
+            out += "[\(safe)](cortex://open?path=\(enc))"
+            last = m.range.location + m.range.length
+        }
+        out += ns.substring(from: last)
+        return out
     }
 }
 

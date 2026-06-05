@@ -1,19 +1,16 @@
 import SwiftUI
 import AppKit
 
-// First-run welcome — ported from the design's Onboarding (overlays.jsx +
-// cortex-mac.css `.onboard`): a connect → index → done flow. Phase 0 lets you
-// pick the vault folder (real NSOpenPanel); phase 1 shows the on-device embed
-// progress; phase 2 drops you into a live, already-indexed Cortex. Shown once
-// (UserDefaults), re-openable via Help ▸ Welcome to Cortex.
+// First-run welcome — the no-terminal setup. Phase 0 shows real readiness (Ollama,
+// model, engine) and a single "Set up Cortex" that runs the actual pipeline
+// (install/start Ollama → opt-in model download → build the engine → index the vault
+// → start it); phase 1 shows live progress as each step turns green; phase 2 enters.
+// Shown once (UserDefaults); re-openable via Help ▸ Welcome to Cortex.
 
 struct OnboardingOverlay: View {
     @EnvironmentObject var state: AppState
-    @State private var phase = 0                 // 0 connect · 1 indexing · 2 done
-    @State private var vault = "~/Claude"
-    @State private var pct = 0
-
-    private var total: Int { max(state.chunks, 1) }
+    @State private var phase = 0                 // 0 welcome · 1 setting up · 2 done
+    @State private var downloadModel = true
 
     var body: some View {
         ZStack {
@@ -21,8 +18,8 @@ struct OnboardingOverlay: View {
             VStack(spacing: 0) {
                 mark.padding(.bottom, 26)
                 switch phase {
-                case 0: connect
-                case 1: indexing
+                case 0:  welcome
+                case 1:  settingUp
                 default: done
                 }
             }
@@ -30,6 +27,10 @@ struct OnboardingOverlay: View {
             .animation(.easeOut(duration: 0.25), value: phase)
         }
         .transition(.opacity)
+        .task { await state.refreshSetupStatus() }
+        .onChange(of: state.setupBusy) { busy in       // setup finished → done (or back to retry)
+            if !busy && phase == 1 { withAnimation { phase = state.engineUp ? 2 : 0 } }
+        }
     }
 
     // brand tile + constellation glyph
@@ -44,52 +45,60 @@ struct OnboardingOverlay: View {
         }
     }
 
-    // MARK: phase 0 — connect / choose vault
-    private var connect: some View {
+    // live readiness card — dots turn green as each step completes
+    private func step(_ ready: Bool, _ title: String, _ sub: String) -> OBStep {
+        OBStep(state: ready ? .done : (state.setupBusy ? .active : .idle), title: title, sub: sub)
+    }
+    private var statusCard: some View {
+        VStack(spacing: 0) {
+            step(state.ollamaReady, "Ollama", state.ollamaReady ? "running" : "will install & start")
+            Divider().background(Theme.hair)
+            step(state.modelReady, "Embedding model · nomic-embed-text", state.modelReady ? "ready · 768-dim" : "downloads on-device (~275 MB)")
+            Divider().background(Theme.hair)
+            step(state.engineUp, "Engine + index", state.engineUp ? "\(state.notesIndexed) notes · \(state.chunks) chunks" : tilde(state.vaultPath))
+        }
+        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.panel))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.hair))
+        .frame(width: 430)
+    }
+
+    // MARK: phase 0 — welcome
+    private var welcome: some View {
         VStack(spacing: 0) {
             Text("Welcome to Cortex").font(Theme.serif(32, .semibold)).foregroundStyle(Theme.txt).tracking(-0.6).padding(.bottom, 10)
-            Text("The local-first brain for your notes. Point Cortex at a vault — a folder of Markdown — and everything stays on this Mac.")
+            Text("The local-first brain for your notes — everything stays on this Mac. Set it up once, no terminal.")
                 .font(Theme.ui(15)).foregroundStyle(Theme.txt2).multilineTextAlignment(.center).lineSpacing(4)
-                .frame(maxWidth: 380).padding(.bottom, 30)
-            VStack(spacing: 0) {
-                OBStep(state: state.engineUp ? .done : .active, title: "Ollama is running", sub: "nomic-embed-text ready · 768-dim")
-                Divider().background(Theme.hair)
-                OBStep(state: .active, title: "Choose your vault", sub: vault)
-                Divider().background(Theme.hair)
-                OBStep(state: .idle, title: "Build the first index", sub: "Embed every note locally")
-            }
-            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.panel))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.hair))
-            .frame(width: 430).padding(.bottom, 26)
-            HStack(spacing: 10) {
-                OBButton(title: "Choose Vault…", sym: Sym.folder, primary: true) { chooseVault() }
-                OBButton(title: "Use ~/Claude", sym: Sym.arrowRight, primary: false) { startIndexing() }
+                .frame(maxWidth: 390).padding(.bottom, 24)
+            statusCard.padding(.bottom, 16)
+            if state.engineUp {
+                OBButton(title: "Enter Cortex", sym: Sym.arrowRight, primary: true) { dismiss() }
+            } else {
+                Toggle(isOn: $downloadModel) {
+                    Text("Download the model if missing (nomic-embed-text, ~275 MB)")
+                        .font(Theme.ui(12)).foregroundStyle(Theme.txt2)
+                }.toggleStyle(.checkbox).padding(.bottom, 18)
+                OBButton(title: "Set up Cortex", sym: Sym.sparkle, primary: true) {
+                    phase = 1; state.setupEverything(downloadModel: downloadModel)
+                }
+                Button("Enter anyway") { dismiss() }
+                    .buttonStyle(.plain).font(Theme.ui(12)).foregroundStyle(Theme.txt3).padding(.top, 12)
             }
         }
     }
 
-    // MARK: phase 1 — indexing
-    private var indexing: some View {
+    // MARK: phase 1 — setting up (real)
+    private var settingUp: some View {
         VStack(spacing: 0) {
-            Text("Indexing your vault").font(Theme.serif(32, .semibold)).foregroundStyle(Theme.txt).tracking(-0.6).padding(.bottom, 10)
-            Text("Embedding every note with nomic-embed-text. This runs entirely on-device — nothing leaves this Mac.")
+            Text("Setting up Cortex").font(Theme.serif(32, .semibold)).foregroundStyle(Theme.txt).tracking(-0.6).padding(.bottom, 10)
+            Text("Installing the engine and embedding your vault on-device. The first run can take a few minutes.")
                 .font(Theme.ui(15)).foregroundStyle(Theme.txt2).multilineTextAlignment(.center).lineSpacing(4)
-                .frame(maxWidth: 380).padding(.bottom, 26)
-            VStack(alignment: .leading, spacing: 10) {
-                HStack { Text(vault).font(Theme.ui(13)).foregroundStyle(Theme.txt2)
-                    Spacer(); Text("\(pct)%").font(Theme.ui(13)).foregroundStyle(Theme.txt2).monospacedDigit() }
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.w(0.10))
-                        Capsule().fill(Theme.accent).frame(width: geo.size.width * CGFloat(pct) / 100)
-                    }
-                }.frame(height: 4)
-                Text("embedding · \(pct * total / 100)/\(total) chunks").font(Theme.mono(12)).foregroundStyle(Theme.txt3)
+                .frame(maxWidth: 390).padding(.bottom, 24)
+            statusCard.padding(.bottom, 18)
+            HStack(spacing: 9) {
+                ProgressView().controlSize(.small)
+                Text(state.setupStep.isEmpty ? "Working…" : state.setupStep)
+                    .font(Theme.ui(13)).foregroundStyle(Theme.txt2).lineLimit(1)
             }
-            .padding(18)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.panel))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.hair))
-            .frame(width: 430)
         }
     }
 
@@ -97,40 +106,14 @@ struct OnboardingOverlay: View {
     private var done: some View {
         VStack(spacing: 0) {
             Text("Your mind is online").font(Theme.serif(32, .semibold)).foregroundStyle(Theme.txt).tracking(-0.6).padding(.bottom, 10)
-            Text("\(state.notes.count) notes indexed. Search by meaning, explore the constellation, and let the LLM keep it all current.")
+            Text("\(state.notesIndexed) notes indexed. Search by meaning, explore the constellation, and let the LLM keep it current.")
                 .font(Theme.ui(15)).foregroundStyle(Theme.txt2).multilineTextAlignment(.center).lineSpacing(4)
-                .frame(maxWidth: 380).padding(.bottom, 30)
+                .frame(maxWidth: 390).padding(.bottom, 30)
             OBButton(title: "Enter Cortex", sym: Sym.arrowRight, primary: true) { dismiss() }
         }
     }
 
-    // MARK: actions
-    private func chooseVault() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose Vault"
-        panel.message = "Pick a folder of Markdown notes to use as your vault."
-        panel.directoryURL = URL(fileURLWithPath: ("~/Claude" as NSString).expandingTildeInPath)
-        if panel.runModal() == .OK, let url = panel.url {
-            vault = (url.path as NSString).abbreviatingWithTildeInPath
-        }
-        startIndexing()
-    }
-
-    private func startIndexing() {
-        phase = 1; pct = 0
-        Task { @MainActor in
-            while pct < 100 {
-                try? await Task.sleep(nanoseconds: 190_000_000)
-                pct = min(100, pct + Int.random(in: 7...22))
-            }
-            try? await Task.sleep(nanoseconds: 420_000_000)
-            withAnimation { phase = 2 }
-        }
-    }
-
+    private func tilde(_ p: String) -> String { (p as NSString).abbreviatingWithTildeInPath }
     private func dismiss() {
         UserDefaults.standard.set(true, forKey: "cortex.onboarded")
         withAnimation(.easeOut(duration: 0.28)) { state.showOnboarding = false }
@@ -168,7 +151,7 @@ private struct OBStep: View {
                     Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Color(hex: 0x06250d))
                 case .active:
                     Circle().fill(Theme.accentSoft).frame(width: 22, height: 22).overlay(Circle().stroke(Theme.accent, lineWidth: 1.5))
-                    Image(systemName: Sym.folder).font(.system(size: 10)).foregroundStyle(Theme.accent2)
+                    ProgressView().controlSize(.small).scaleEffect(0.55)
                 case .idle:
                     Circle().stroke(Theme.hairStrong, lineWidth: 1.5).frame(width: 22, height: 22)
                 }
