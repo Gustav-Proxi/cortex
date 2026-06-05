@@ -643,10 +643,11 @@ final class GraphCanvas: NSView {
         for i in nodes.indices {
             let la = labelAlpha(i, k)
             if la <= 0 { continue }
-            let isHot = i == hoverId
+            let isHot = i == hoverId || (mini && nodes[i].id == pinId)
             let sx = tx + nodes[i].x * k, sy = ty + nodes[i].y * k
             let r = radius(i) * k
-            let font = NSFont(name: "Menlo", size: 10) ?? .monospacedSystemFont(ofSize: 10, weight: .regular)
+            let fs: CGFloat = mini ? 8.5 : 10
+            let font = NSFont(name: "Menlo", size: fs) ?? .monospacedSystemFont(ofSize: fs, weight: .regular)
             let shadow = NSShadow(); shadow.shadowColor = NSColor(white: 0, alpha: 0.8); shadow.shadowBlurRadius = 3
             let color: NSColor = isHot ? .white : NSColor(srgbRed: 0xdf/255, green: 0xe2/255, blue: 0xe7/255, alpha: 1)
             let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color.withAlphaComponent(la), .shadow: shadow]
@@ -663,7 +664,7 @@ final class GraphCanvas: NSView {
     }
 
     private func labelAlpha(_ i: Int, _ k: CGFloat) -> CGFloat {
-        if mini { return 0 }                 // mini map stays clean — no labels
+        if mini { return (i == hoverId || nodes[i].id == pinId) ? 1 : 0.62 }   // label every node; emphasize centre/hover
         if i == hoverId { return 1 }
         if hoverId != nil { return hoverSet.contains(i) ? 0.9 : 0 }
         switch labelMode {
@@ -728,8 +729,11 @@ final class GraphCanvas: NSView {
         else if !mini { panning = true; NSCursor.closedHand.set() }
     }
     override func mouseDragged(with e: NSEvent) {
-        if mini { moved = true; return }     // mini map: click-to-open only, no drag/pan
         let p = local(e)
+        if mini {                            // tolerate a small jiggle so a click still opens the note
+            if hypot(p.x - lastMouse.x, p.y - lastMouse.y) > 4 { moved = true }
+            return
+        }
         if let i = dragNode {
             let w = toWorld(p)
             nodes[i].x = w.x; nodes[i].y = w.y; nodes[i].vx = 0; nodes[i].vy = 0
