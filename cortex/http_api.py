@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
-from . import claude, config, embed, store, vault
+from . import claude, config, embed, graphintel, store, vault
 
 # The local web UI ("Cortex Desktop", browser-served) lives here and is served
 # same-origin with the API below, so the UI's fetches need no CORS relaxation.
@@ -117,6 +117,19 @@ class _Handler(BaseHTTPRequestHandler):
                 k = int((q.get("k") or ["5"])[0])
                 mn = float((q.get("min") or ["0"])[0])
                 self._send(200, {"edges": _semantic_edges(k, mn)})
+            elif u.path == "/graph_overview":
+                self._send(200, graphintel.overview())
+            elif u.path == "/graph_path":
+                self._send(200, graphintel.shortest_path((q.get("a") or [""])[0], (q.get("b") or [""])[0]))
+            elif u.path == "/graph_hubs":
+                self._send(200, graphintel.hubs(int((q.get("k") or ["15"])[0])))
+            elif u.path == "/graph_communities":
+                self._send(200, graphintel.communities())
+            elif u.path == "/graph_bridges":
+                self._send(200, graphintel.bridges(int((q.get("k") or ["20"])[0]), float((q.get("min") or ["0"])[0])))
+            elif u.path == "/graph_export":
+                fmt = (q.get("fmt") or ["mermaid"])[0]
+                self._send(200, {"format": fmt, "export": graphintel.export(fmt)})
             elif u.path == "/raw":
                 self._serve_file(vault.resolve_readable((q.get("path") or [""])[0]))
             else:

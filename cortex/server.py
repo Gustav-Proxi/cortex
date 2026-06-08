@@ -22,7 +22,7 @@ import re
 
 from mcp.server.fastmcp import FastMCP
 
-from . import config, embed, index, papers, research, store, vault
+from . import config, embed, graphintel, index, papers, research, store, vault
 
 mcp = FastMCP("cortex")
 
@@ -300,6 +300,53 @@ def suggest_links(path: str, k: int = 8) -> str:
     """Notes semantically near this one that it does NOT already [[link]] to —
     candidate wikilinks to add, to keep the graph connected."""
     return _safe(research.suggest_links, path, k)
+
+
+# ============================================================================
+# Graph intelligence  (analytics over the wiki-link + semantic graph)
+# ============================================================================
+
+@mcp.tool()
+def graph_overview() -> str:
+    """A one-shot map of the vault's shape: size, top hubs, communities, orphans,
+    and surprising (semantic-but-unlinked) bridges. Start here to understand structure."""
+    return _safe(graphintel.overview)
+
+
+@mcp.tool()
+def graph_path(a: str, b: str) -> str:
+    """Shortest [[wikilink]] path between two notes (by name or vault path) — how an
+    idea connects to another, and through which notes."""
+    return _safe(graphintel.shortest_path, a, b)
+
+
+@mcp.tool()
+def graph_hubs(k: int = 15) -> str:
+    """The most-connected notes ('god nodes') — the vault's gravitational centres."""
+    return _safe(graphintel.hubs, k)
+
+
+@mcp.tool()
+def graph_communities() -> str:
+    """Cluster the vault into communities of densely-linked notes (topical groups),
+    each named by its central hub."""
+    return _safe(graphintel.communities)
+
+
+@mcp.tool()
+def graph_bridges(k: int = 20, min_score: float = 0.0) -> str:
+    """Surprising connections: notes that read as related (embedding similarity) but
+    are NOT [[wikilinked]], prioritising cross-cluster pairs — candidate links to add."""
+    return _safe(graphintel.bridges, k, min_score)
+
+
+@mcp.tool()
+def graph_export(fmt: str = "mermaid") -> str:
+    """Export the vault's link graph as `mermaid` | `cypher` | `graphml` | `json`."""
+    try:
+        return graphintel.export(fmt)
+    except Exception as e:  # noqa: BLE001
+        return f"Error: {e}"
 
 
 # ============================================================================
