@@ -16,8 +16,8 @@ import os
 import sys
 from pathlib import Path
 
-from . import config, embed, store
-from .chunk import chunk_markdown
+from . import config, embed, extract, store
+from .chunk import chunk_markdown, chunk_text
 
 
 def _ignored(rel: str) -> bool:
@@ -94,7 +94,11 @@ def index_file(db, path: Path, *, force: bool = False) -> int:
     mtime = path.stat().st_mtime
     if not force and store.file_mtime(db, pid) == mtime:
         return 0
-    chunks = chunk_markdown(pid, path.read_text(encoding="utf-8", errors="replace"))
+    if extract.is_markdown(path):
+        chunks = chunk_markdown(pid, path.read_text(encoding="utf-8", errors="replace"))
+    else:                                   # PDF / source code / plain text from extra roots
+        text = extract.extract_text(path)
+        chunks = chunk_text(pid, text) if text else []
     store.delete_path(db, pid)
     if not chunks:
         db.commit()

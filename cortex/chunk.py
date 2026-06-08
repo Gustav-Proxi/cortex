@@ -95,3 +95,14 @@ def chunk_markdown(path: str, md: str) -> list[Chunk]:
             out.append(Chunk(path=path, heading=breadcrumb, text=piece, chunk_index=idx))
             idx += 1
     return out
+
+
+def chunk_text(path: str, text: str) -> list[Chunk]:
+    """Chunk arbitrary text — PDF text, source code, plain text — with no frontmatter
+    or heading parsing (the markdown chunker would mis-split code). Just packs the
+    raw text into ~CHUNK_CHARS windows. Used for everything that isn't markdown."""
+    out: list[Chunk] = []
+    for idx, piece in enumerate(_pack(text, config.CHUNK_CHARS, config.CHUNK_OVERLAP)):
+        if piece.strip():
+            out.append(Chunk(path=path, heading="", text=piece, chunk_index=idx))
+    return out

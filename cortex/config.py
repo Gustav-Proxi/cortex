@@ -101,12 +101,18 @@ def _parse_roots(raw: str) -> list[Path]:
 
 EXTRA_ROOTS = _parse_roots(os.environ.get("CORTEX_EXTRA_ROOTS", ""))
 
-# Which file types to index inside EXTRA_ROOTS. Text-first by design: PDFs/code
-# need a real extractor + chunker (the markdown chunker would mis-split code),
-# so those are a deliberate later step. The vault itself is always *.md.
+# Which file types to index inside EXTRA_ROOTS — markdown, plain text, PDFs (via
+# pypdf) and source code (read verbatim, windowed by the generic chunker; see
+# extract.py / chunk.chunk_text). Point CORTEX_EXTRA_ROOTS at a papers folder or a
+# project's codebase and these become searchable alongside the vault. The vault
+# itself is always *.md. Override the set with CORTEX_INDEX_EXTENSIONS.
 INDEX_EXTENSIONS = {
     (e if e.startswith(".") else f".{e}").lower()
-    for e in re.split(r"[,\s]+", os.environ.get("CORTEX_INDEX_EXTENSIONS", ".md .txt").strip())
+    for e in re.split(r"[,\s]+", os.environ.get(
+        "CORTEX_INDEX_EXTENSIONS",
+        ".md .txt .pdf .py .js .ts .tsx .jsx .mjs .swift .go .rs .java .kt .c .cc "
+        ".cpp .h .hpp .rb .php .lua .r .sh .sql .graphql .json .yaml .yml .toml "
+        ".html .css .scss .vue .svelte .tex").strip())
     if e
 }
 
