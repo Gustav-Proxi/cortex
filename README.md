@@ -28,6 +28,8 @@ Cortex turns a folder of markdown (your Obsidian vault) into something an LLM ca
 - 🔎 **Search** — semantic (local embeddings), literal (grep), and **hybrid** (keyword ⊕ vector); plus frontmatter/property filters and the `[[wikilink]]` graph (`backlinks` / `outgoing_links`).
 - ✍️ **Read & write** — full note CRUD, frontmatter, templates, daily notes. The LLM can *file answers back into the wiki*, so knowledge **compounds** instead of vanishing into chat history.
 - 📚 **Research helpers** — DOI/arXiv → APA + BibTeX, deadline extraction from your notes, unlinked-neighbour suggestions.
+- 🕸️ **Graph intelligence** — shortest path between notes, "god nodes" (hubs), topical communities, and **semantic bridges** (notes that read as related but aren't `[[linked]]`); export to mermaid/cypher/graphml.
+- 📎 **Beyond markdown** — point `CORTEX_EXTRA_ROOTS` at a papers folder or a project's codebase and Cortex indexes **PDFs and source code** too, searchable alongside your notes.
 - ⚡ **Always current** — a background watcher re-embeds changed notes within ~2 s; the index is a single sqlite file.
 
 It reads and writes the vault's markdown **directly** — no Obsidian process, no HTTP bridge, no bearer token. Nothing leaves the machine: embeddings run locally via Ollama.
@@ -121,12 +123,15 @@ CORTEX_VAULT="$HOME/Claude" ./.venv/bin/python -m cortex.index build
 ./.venv/bin/python -m cortex.index stats
 ```
 
-## The MCP tools (27)
+## The MCP tools (33)
 
 **Search & recall** — `semantic_search`, `related_notes`, `search_text` (grep),
 `search_property` (frontmatter `status`/`type`/`domain`), `hybrid_search`
 (keyword ⊕ vector), `search_filtered` (semantic *within* a property), `backlinks`,
 `outgoing_links`
+**Graph intelligence** — `graph_overview`, `graph_path` (shortest [[link]] path),
+`graph_hubs` ("god nodes"), `graph_communities` (topical clusters),
+`graph_bridges` (semantic-but-unlinked pairs), `graph_export` (mermaid/cypher/graphml/json)
 **Read** — `get_note`, `get_section`, `get_metadata`, `list_notes`,
 `list_folders`, `vault_stats`
 **Write & manage** — `write_note`, `append_note`, `patch_note`, `set_property`,
