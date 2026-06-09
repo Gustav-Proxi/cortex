@@ -63,7 +63,7 @@ private struct GraphControls: View {
             }
         }
         .padding(EdgeInsets(top: 13, leading: 15, bottom: 13, trailing: 15))
-        .frame(width: 210)
+        .frame(width: 232)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.glass))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.hair2))
         .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial).opacity(0.5))
@@ -193,7 +193,10 @@ private struct GraphCanvasView: NSViewRepresentable {
             v.setEdges(es); c.edgeCount = es.count
         }
         c.linkMode = state.linkMode
-        if c.colorBy != state.colorBy { c.colorBy = state.colorBy; v.setColorBy(state.colorBy) }
+        v.communityOf = state.communityOf
+        let needRecolor = c.colorBy != state.colorBy ||
+            (state.colorBy == .community && c.communityCount != state.communityOf.count)
+        if needRecolor { c.colorBy = state.colorBy; c.communityCount = state.communityOf.count; v.setColorBy(state.colorBy) }
         if c.labelMode != state.labelMode { c.labelMode = state.labelMode; v.setLabelMode(state.labelMode) }
         if c.relayout != state.relayoutTick { c.relayout = state.relayoutTick; v.relayout() }
         if c.fit != state.fitTick { c.fit = state.fitTick; v.fit() }
@@ -213,6 +216,7 @@ private struct GraphCanvasView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
     final class Coordinator {
         var colorBy: ColorBy = .domain
+        var communityCount = -1
         var linkMode: LinkMode = .wiki
         var labelMode: LabelMode = .all
         var relayout = 0, fit = 0, edgeCount = -1
@@ -285,6 +289,15 @@ final class GraphCanvas: NSView {
     var mini = false                 // compact neighbourhood map (reader inspector)
     var pinId: String? = nil         // the focused note in mini mode
     var circular = false             // force "neuron" spread (the ring looked bad with this many links)
+    var communityOf: [String: Int] = [:]   // note id → cluster, for Color by Cluster
+
+    // distinct hue per community; −1 (meta/isolated) = graphite grey
+    static func communityHex(_ idx: Int) -> UInt32 {
+        if idx < 0 { return 0x6b7280 }
+        let pal: [UInt32] = [0x67E8F9, 0xA78BFA, 0xFCD34D, 0x86EFAC, 0xFDA4AF, 0x93C5FD,
+                             0xF0ABFC, 0xFDBA74, 0x5EEAD4, 0xC4B5FD, 0xFCA5A5, 0xBEF264]
+        return pal[idx % pal.count]
+    }
 
     // fit/zoom animation
     private var animFrom: (CGFloat, CGFloat, CGFloat)?
@@ -383,6 +396,7 @@ final class GraphCanvas: NSView {
             case .domain: h = DomainColor.identityHex(domain: nodes[i].domain, folder: nodes[i].folder)
             case .status: h = Maturity.hex(nodes[i].status)
             case .folder: h = DomainColor.hex(nodes[i].folder?.split(separator: "/").first.map(String.init))
+            case .community: h = Self.communityHex(communityOf[nodes[i].id] ?? -1)
             }
             nodes[i].color = NSColor(srgbRed: CGFloat((h>>16)&0xff)/255, green: CGFloat((h>>8)&0xff)/255,
                                      blue: CGFloat(h&0xff)/255, alpha: 1)

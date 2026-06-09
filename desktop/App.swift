@@ -51,7 +51,7 @@ struct CortexApp: App {
 
 enum Route: Equatable { case graph, library, daily, reader }
 struct HoverInfo: Equatable { let title: String; let path: String; let links: Int }
-enum ColorBy: String, CaseIterable { case domain = "Domain", folder = "Folder", status = "Status" }
+enum ColorBy: String, CaseIterable { case domain = "Domain", folder = "Folder", status = "Status", community = "Cluster" }
 enum LinkMode: String, CaseIterable { case wiki = "Wiki", both = "Both", semantic = "Semantic" }
 enum LabelMode: String, CaseIterable { case all = "All", hubs = "Hubs", off = "Off" }
 
@@ -62,6 +62,7 @@ final class AppState: ObservableObject {
     @Published var notes: [VaultNote] = []
     @Published var byId: [String: VaultNote] = [:]
     @Published var semanticEdges: [GraphEdge] = []
+    @Published var communityOf: [String: Int] = [:]      // note id → cluster (for Color by Cluster)
     @Published var chunks = 0
     @Published var notesIndexed = 0
     @Published var loading = false
@@ -277,6 +278,7 @@ final class AppState: ObservableObject {
             applyGraph(g)
             engineUp = true; errorMessage = nil
             if let sem = try? await api.semanticEdges() { semanticEdges = sem }
+            if let cm = try? await api.communityMap() { communityOf = cm }
             if let h = try? await api.healthInfo() { chunks = h.chunks; notesIndexed = h.notes }
         } catch {
             engineUp = false
@@ -371,6 +373,7 @@ final class AppState: ObservableObject {
         case .domain: return DomainColor.hex(n.domain)
         case .status: return Maturity.hex(n.status)
         case .folder: return DomainColor.hex(n.folder?.split(separator: "/").first.map(String.init))
+        case .community: return GraphCanvas.communityHex(communityOf[n.id] ?? -1)
         }
     }
 }

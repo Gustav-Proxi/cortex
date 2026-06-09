@@ -140,6 +140,11 @@ struct CortexAPI {
         try JSONDecoder().decode(SemanticGraph.self, from: try await get("/semantic_graph?k=\(k)")).edges
     }
 
+    /// note id → community index (−1 = meta/isolated) for Color by Cluster.
+    func communityMap() async throws -> [String: Int] {
+        try JSONDecoder().decode([String: Int].self, from: try await get("/graph_community_map"))
+    }
+
     func related(_ path: String, k: Int = 6) async throws -> [SearchHit] {
         let data = try await post("/related", ["path": path, "k": k])
         return try JSONDecoder().decode([SearchHit].self, from: data)
