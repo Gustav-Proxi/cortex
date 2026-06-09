@@ -62,6 +62,8 @@ final class AppState: ObservableObject {
     @Published var notes: [VaultNote] = []
     @Published var byId: [String: VaultNote] = [:]
     @Published var semanticEdges: [GraphEdge] = []
+    @Published var externalNodes: [GraphNode] = []        // code/PDF files under indexed roots (graph-only, not the sidebar)
+    @Published var externalEdges: [GraphEdge] = []        // their semantic links to the rest of the constellation
     @Published var communityOf: [String: Int] = [:]      // note id → cluster (for Color by Cluster)
     @Published var chunks = 0
     @Published var notesIndexed = 0
@@ -278,6 +280,7 @@ final class AppState: ObservableObject {
             applyGraph(g)
             engineUp = true; errorMessage = nil
             if let sem = try? await api.semanticEdges() { semanticEdges = sem }
+            if let ext = try? await api.externalGraph() { externalNodes = ext.nodes; externalEdges = ext.edges }
             if let cm = try? await api.communityMap() { communityOf = cm }
             if let h = try? await api.healthInfo() { chunks = h.chunks; notesIndexed = h.notes }
         } catch {
@@ -322,6 +325,7 @@ final class AppState: ObservableObject {
         guard graphSig(g) != lastGraphSig else { return }
         applyGraph(g)
         if let sem = try? await api.semanticEdges() { semanticEdges = sem }
+        if let ext = try? await api.externalGraph() { externalNodes = ext.nodes; externalEdges = ext.edges }
     }
 
     private var polling = false
@@ -369,6 +373,7 @@ final class AppState: ObservableObject {
         }
     }
     func colorHex(_ n: GraphNode) -> UInt32 {
+        if n.external == true { return GraphCanvas.externalHex(n.type) }   // code/PDF: by kind, not COLOR BY
         switch colorBy {
         case .domain: return DomainColor.hex(n.domain)
         case .status: return Maturity.hex(n.status)

@@ -25,6 +25,7 @@ struct GraphNode: Decodable, Identifiable, Hashable {
     let type: String?
     let status: String?
     let domain: String?
+    var external: Bool? = nil   // true = a code/PDF file under an indexed root, not a vault note
 }
 struct GraphEdge: Decodable, Hashable { let source: String; let target: String }
 struct Graph: Decodable { let nodes: [GraphNode]; let edges: [GraphEdge] }
@@ -143,6 +144,13 @@ struct CortexAPI {
     /// note id → community index (−1 = meta/isolated) for Color by Cluster.
     func communityMap() async throws -> [String: Int] {
         try JSONDecoder().decode([String: Int].self, from: try await get("/graph_community_map"))
+    }
+
+    /// External files (code/PDFs under EXTRA_ROOTS) as graph nodes + their semantic
+    /// edges. Empty unless extra roots are indexed — so the default constellation is
+    /// unchanged. These ride the canvas alongside, but never enter the notes sidebar.
+    func externalGraph() async throws -> Graph {
+        try JSONDecoder().decode(Graph.self, from: try await get("/graph_external"))
     }
 
     func related(_ path: String, k: Int = 6) async throws -> [SearchHit] {

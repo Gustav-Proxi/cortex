@@ -154,7 +154,8 @@ private struct GraphMeta: View {
                     Text("\(h.links) links").font(Theme.ui(11.5)).foregroundStyle(Theme.txt2).padding(.top, 2)
                 }
             } else {
-                Text("\(state.notes.count) notes · \(state.graphEdges().count) links · \(state.semanticEdges.count) semantic · \(state.chunks) chunks")
+                Text("\(state.notes.count) notes" + (state.externalNodes.isEmpty ? "" : " · \(state.externalNodes.count) files")
+                     + " · \(state.graphEdges().count) links · \(state.semanticEdges.count) semantic · \(state.chunks) chunks")
                     .font(.system(size: 11.5)).foregroundStyle(Theme.txt2).monospacedDigit()
             }
         }
@@ -173,7 +174,12 @@ private struct GraphCanvasView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> GraphCanvas {
         let v = GraphCanvas()
-        v.onSelect = { id in Task { @MainActor in state.open(id) } }
+        v.onSelect = { id in Task { @MainActor in
+            // external files (absolute paths under an indexed root) live on disk —
+            // open them in their default app; vault notes open in the reader.
+            if id.hasPrefix("/") { NSWorkspace.shared.open(URL(fileURLWithPath: id)) }
+            else { state.open(id) }
+        } }
         v.onHover  = { info in Task { @MainActor in state.hoverInfo = info } }
         sync(v, context)
         return v
@@ -183,9 +189,10 @@ private struct GraphCanvasView: NSViewRepresentable {
 
     private func sync(_ v: GraphCanvas, _ context: Context) {
         let c = context.coordinator
+        let canvasNodes = (state.graph?.nodes ?? []) + state.externalNodes   // notes + indexed code/PDF files
         let es = edgesFor(state.linkMode)
-        if v.nodeCount != state.notes.count {
-            v.load(nodes: state.graph?.nodes ?? [], edges: es, colorBy: state.colorBy, labelMode: state.labelMode)
+        if v.nodeCount != canvasNodes.count {
+            v.load(nodes: canvasNodes, edges: es, colorBy: state.colorBy, labelMode: state.labelMode)
             c.edgeCount = es.count
         } else if c.linkMode != state.linkMode || c.edgeCount != es.count {
             // link-mode switch OR a live vault edit changed the links → update in place,
@@ -205,7 +212,7 @@ private struct GraphCanvasView: NSViewRepresentable {
     // (source, target, isSemantic) per current link mode.
     private func edgesFor(_ m: LinkMode) -> [(String, String, Bool)] {
         let wiki = (state.graph?.edges ?? []).map { ($0.source, $0.target, false) }
-        let sem  = state.semanticEdges.map { ($0.source, $0.target, true) }
+        let sem  = (state.semanticEdges + state.externalEdges).map { ($0.source, $0.target, true) }
         switch m {
         case .wiki: return wiki
         case .semantic: return sem
@@ -232,7 +239,12 @@ struct MiniGraphView: NSViewRepresentable {
     func makeNSView(context: Context) -> GraphCanvas {
         let v = GraphCanvas()
         v.mini = true
-        v.onSelect = { id in Task { @MainActor in state.open(id) } }
+        v.onSelect = { id in Task { @MainActor in
+            // external files (absolute paths under an indexed root) live on disk —
+            // open them in their default app; vault notes open in the reader.
+            if id.hasPrefix("/") { NSWorkspace.shared.open(URL(fileURLWithPath: id)) }
+            else { state.open(id) }
+        } }
         context.coordinator.loaded = noteId
         loadNeighborhood(into: v)
         return v
@@ -262,6 +274,7 @@ final class GraphCanvas: NSView {
     private struct N {
         let id: String, label: String
         let domain: String?, status: String?, folder: String?
+        let external: Bool, kind: String?     // external = code/PDF file under an indexed root
         var x: CGFloat = 0, y: CGFloat = 0, vx: CGFloat = 0, vy: CGFloat = 0
         var deg = 0
         var color = NSColor.gray
@@ -333,7 +346,8 @@ final class GraphCanvas: NSView {
         let spread = 64 * sqrt(CGFloat(max(1, count)))
         for (i, g) in ns.enumerated() {
             index[g.id] = i
-            var n = N(id: g.id, label: g.label, domain: g.domain, status: g.status, folder: g.folder)
+            var n = N(id: g.id, label: g.label, domain: g.domain, status: g.status, folder: g.folder,
+                      external: g.external ?? false, kind: g.type)
             if let old = prev[g.id] { n.x = prevNodes[old].x; n.y = prevNodes[old].y }   // keep prior positions on reload
             else {
                 // deterministic phyllotaxis seed → even disc, consistent settling
@@ -389,8 +403,24 @@ final class GraphCanvas: NSView {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.fit() }
     }
 
+    // external files (code/PDFs) get a fixed warm hue by kind, regardless of COLOR BY,
+    // so they read as "a file, not a note" at a glance: code amber · pdf rose · doc teal.
+    static func externalHex(_ kind: String?) -> UInt32 {
+        switch kind {
+        case "pdf": return 0xFB7185
+        case "doc": return 0x2DD4BF
+        default:    return 0xF59E0B
+        }
+    }
+
     private func applyColors() {
         for i in nodes.indices {
+            if nodes[i].external {
+                let h = Self.externalHex(nodes[i].kind)
+                nodes[i].color = NSColor(srgbRed: CGFloat((h>>16)&0xff)/255, green: CGFloat((h>>8)&0xff)/255,
+                                         blue: CGFloat(h&0xff)/255, alpha: 1)
+                continue
+            }
             let h: UInt32
             switch colorBy {
             case .domain: h = DomainColor.identityHex(domain: nodes[i].domain, folder: nodes[i].folder)
@@ -624,16 +654,27 @@ final class GraphCanvas: NSView {
 
     private func drawCores(_ ctx: CGContext, _ k: CGFloat) {
         let cs = CGColorSpaceCreateDeviceRGB()
+        // notes are circles; external files (code/PDFs) are rounded squares — a
+        // shape cue that survives any COLOR BY and reads instantly at a distance.
+        func shape(_ rect: CGRect, _ ext: Bool) {
+            if ext {
+                let c = rect.width * 0.24
+                ctx.addPath(CGPath(roundedRect: rect, cornerWidth: c, cornerHeight: c, transform: nil))
+            } else {
+                ctx.addEllipse(in: rect)
+            }
+        }
         for i in nodes.indices {
             let isHot = i == hoverId || (mini && nodes[i].id == pinId)
             let r = radius(i)
+            let ext = nodes[i].external
             let col = nodes[i].color
             let on = focused(i)
             let x = nodes[i].x, y = nodes[i].y
             // spherical core: sheen toward top-left → full colour at the rim
             ctx.saveGState()
             ctx.setAlpha(on ? 1 : 0.14)
-            ctx.addEllipse(in: CGRect(x: x - r, y: y - r, width: 2*r, height: 2*r)); ctx.clip()
+            shape(CGRect(x: x - r, y: y - r, width: 2*r, height: 2*r), ext); ctx.clip()
             let grad = CGGradient(colorsSpace: cs, colors: [
                 lighten(col, 0.7).cgColor, lighten(col, 0.12).cgColor, col.cgColor] as CFArray, locations: [0, 0.45, 1])!
             ctx.drawRadialGradient(grad, startCenter: CGPoint(x: x - r*0.36, y: y + r*0.4), startRadius: r*0.1,
@@ -641,12 +682,12 @@ final class GraphCanvas: NSView {
             ctx.restoreGState()
             // crisp contact rim
             ctx.setAlpha(on ? 0.5 : 0.1)
-            ctx.addEllipse(in: CGRect(x: x - r, y: y - r, width: 2*r, height: 2*r))
+            shape(CGRect(x: x - r, y: y - r, width: 2*r, height: 2*r), ext)
             ctx.setStrokeColor(NSColor(white: 0, alpha: 0.45).cgColor); ctx.setLineWidth(0.75 / k); ctx.strokePath()
             ctx.setAlpha(1)
             if isHot {                                   // focus ring
                 let rr = r + 3.5/k
-                ctx.addEllipse(in: CGRect(x: x - rr, y: y - rr, width: 2*rr, height: 2*rr))
+                shape(CGRect(x: x - rr, y: y - rr, width: 2*rr, height: 2*rr), ext)
                 ctx.setStrokeColor(NSColor.white.cgColor); ctx.setLineWidth(1.5 / k); ctx.strokePath()
             }
         }
