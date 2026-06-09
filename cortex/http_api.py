@@ -125,6 +125,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, graphintel.hubs(int((q.get("k") or ["15"])[0])))
             elif u.path == "/graph_communities":
                 self._send(200, graphintel.communities())
+            elif u.path == "/graph_community_map":
+                self._send(200, graphintel.node_communities())
             elif u.path == "/graph_bridges":
                 self._send(200, graphintel.bridges(int((q.get("k") or ["20"])[0]), float((q.get("min") or ["0"])[0])))
             elif u.path == "/graph_export":

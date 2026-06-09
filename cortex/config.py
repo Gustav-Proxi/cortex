@@ -30,6 +30,9 @@ IGNORE_GLOBS = [
     ".git/**",
     ".smart-env/**",   # Smart Connections' embedding cache — large, not notes
     ".claude/**",      # Claude Code command/prompt files, not vault knowledge
+    "**/Templates/**", # note templates (placeholder frontmatter like domain: <domain>)
+    "Templates/**",
+    "07-templates/**",
     "**/.DS_Store",
     # Add your own high-churn folders here, e.g. "99-Task-Snapshots/**".
 ]

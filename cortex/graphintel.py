@@ -132,6 +132,14 @@ def _community_map(nodes: dict, adj: dict) -> tuple[dict[str, int], list[list[st
     return by_node, clusters
 
 
+def node_communities() -> dict:
+    """{note_id: community_index} — for the app to colour the constellation by cluster.
+    Meta/TOC notes and isolated notes get -1 (no community)."""
+    nodes, adj, _ = _graph()
+    by_node, _ = _community_map(nodes, adj)
+    return {nid: by_node.get(nid, -1) for nid in nodes}
+
+
 def communities() -> dict:
     """Cluster the vault into communities of densely-linked notes."""
     nodes, adj, _ = _graph()
