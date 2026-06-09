@@ -196,6 +196,85 @@ def bridges(k: int = 20, min_score: float = 0.0) -> list[dict]:
     return out[:k]
 
 
+# --- external files as graph nodes (code / PDFs under EXTRA_ROOTS) -----------
+
+# Suffix → coarse node kind, so the app can shape/colour external files distinctly
+# from notes. Everything that isn't a PDF or a prose doc is treated as "code".
+_DOC_EXTS = {".md", ".markdown", ".txt", ".rst", ".tex", ".org"}
+
+
+def _ext_kind(path: str) -> str:
+    s = Path(path).suffix.lower()
+    if s == ".pdf":
+        return "pdf"
+    if s in _DOC_EXTS:
+        return "doc"
+    return "code"
+
+
+def _ext_folder(path: str) -> str:
+    """A readable 'folder' for an external file: '<root-name>/<subdir>' so the app
+    can group/colour files from the same indexed root together."""
+    from . import config
+    p = Path(path)
+    for root in config.EXTRA_ROOTS:
+        try:
+            rel = p.resolve().relative_to(root)
+        except ValueError:
+            continue
+        sub = str(rel.parent)
+        return root.name if sub == "." else f"{root.name}/{sub}"
+    return str(p.parent.name)
+
+
+def _external_paths() -> list[str]:
+    """Distinct absolute paths of indexed external (EXTRA_ROOTS) files — these live
+    in the store keyed by absolute path, never as vault-relative notes."""
+    db = store.connect()
+    rows = db.execute("SELECT DISTINCT path FROM chunks WHERE path LIKE '/%'").fetchall()
+    return sorted(r[0] for r in rows)
+
+
+def _doc_text(path: str) -> str:
+    """Clean, already-extracted text for a path, reassembled from its stored chunks
+    (so PDFs read as their pypdf text, not raw bytes; code reads verbatim)."""
+    db = store.connect()
+    rows = db.execute(
+        "SELECT text FROM chunks WHERE path = ? ORDER BY chunk_index", (path,)
+    ).fetchall()
+    return "\n".join(r[0] for r in rows)
+
+
+def external_graph(k: int = 4, min_score: float = 0.0) -> dict:
+    """External files (code/PDFs under EXTRA_ROOTS) as constellation nodes, each
+    linked by *semantic* edges to its nearest indexed neighbours (notes or other
+    external files). Empty when no external roots are indexed, so the default
+    vault-only constellation is unchanged. Edges are inherently semantic — the app
+    shows them under LINKS = Semantic/Both."""
+    paths = _external_paths()
+    if not paths:
+        return {"nodes": [], "edges": []}
+    db = store.connect()
+    nodes = [{"id": p, "label": Path(p).stem, "folder": _ext_folder(p),
+              "type": _ext_kind(p), "status": None, "domain": None, "external": True}
+             for p in paths]
+    seen: set = set()
+    edges = []
+    for p in paths:
+        text = _doc_text(p)
+        if not text:
+            continue
+        for h in store.search(db, embed.embed_query(text[:4000]), k + 1):
+            if h.path == p or (min_score and h.score < min_score):
+                continue
+            a, b = (p, h.path) if p < h.path else (h.path, p)
+            if (a, b) in seen:
+                continue
+            seen.add((a, b))
+            edges.append({"source": p, "target": h.path, "score": round(h.score, 4)})
+    return {"nodes": nodes, "edges": edges}
+
+
 # --- exports -----------------------------------------------------------------
 
 def export(fmt: str = "mermaid") -> str:
